@@ -158,8 +158,14 @@ class DiffMiningMethod(DiffingMethod):
         self.patchscope_lens_layer_idx: int | None = None
         self.jlens_layer_relative: float | None = None
         self.jlens_layer_idx: int | None = None
+        self.jlens_lens_source: str | None = None
         self.jlens_lens_path: str | None = None
+        self.jlens_lens_path_ft: str | None = None
         self.logits_extractor: LogitsExtractor
+        # Extractor used for the finetuned model. Same object as
+        # logits_extractor except for jlens with lens_source='own' (paired
+        # lens), where the finetuned model is read through its own lens.
+        self.logits_extractor_ft: LogitsExtractor
 
         logit_extraction_cfg = getattr(self.method_cfg, "logit_extraction", None)
         self.logit_extraction_method = str(
@@ -240,33 +246,53 @@ class DiffMiningMethod(DiffingMethod):
                 [layer_rel],
             )[0]
 
-            lens_source = str(getattr(jlens_cfg, "lens_source", "base"))
-            assert lens_source == "base", (
-                "only lens_source='base' (base-model lens applied to both models) "
-                f"is implemented; got {lens_source!r}"
+            lens_source = str(getattr(jlens_cfg, "lens_source", "own"))
+            assert lens_source in ("own", "base"), (
+                f"jlens.lens_source must be 'own' or 'base', got {lens_source!r}"
             )
-            local_lens_path = getattr(jlens_cfg, "local_lens_path", None)
-            if local_lens_path:
-                self.jlens_lens_path = str(local_lens_path)
-            else:
+            self.jlens_lens_source = lens_source
+
+            def _resolve_lens(local_path, filename):
+                if local_path:
+                    return str(local_path)
                 from huggingface_hub import hf_hub_download
 
-                self.jlens_lens_path = hf_hub_download(
-                    str(jlens_cfg.lens_repo), filename=str(jlens_cfg.lens_filename)
-                )
+                return hf_hub_download(str(jlens_cfg.lens_repo), filename=str(filename))
+
+            self.jlens_lens_path = _resolve_lens(
+                getattr(jlens_cfg, "local_lens_path", None), jlens_cfg.lens_filename
+            )
             self.logits_extractor = JLensExtractor(
                 layer_idx=self.jlens_layer_idx, lens_path=self.jlens_lens_path
             )
+            if lens_source == "own":
+                # Paired lens: the finetuned model reads through its own lens.
+                self.jlens_lens_path_ft = _resolve_lens(
+                    getattr(jlens_cfg, "local_lens_path_ft", None),
+                    jlens_cfg.lens_filename_ft,
+                )
+                self.logits_extractor_ft = JLensExtractor(
+                    layer_idx=self.jlens_layer_idx, lens_path=self.jlens_lens_path_ft
+                )
+            else:
+                self.jlens_lens_path_ft = self.jlens_lens_path
+                self.logits_extractor_ft = self.logits_extractor
             self.logger.info(
                 "JLens logit extraction: "
                 f"layer {self.jlens_layer_relative} (absolute: {self.jlens_layer_idx}), "
-                f"lens_source={lens_source}, lens={self.jlens_lens_path}"
+                f"lens_source={lens_source}, base_lens={self.jlens_lens_path}, "
+                f"ft_lens={self.jlens_lens_path_ft}"
             )
         else:
             raise ValueError(
                 f"Unknown logit_extraction.method: '{self.logit_extraction_method}'. "
                 "Expected 'logits', 'logit_lens', 'patchscope_lens', or 'jlens'."
             )
+
+        # Default: the finetuned model is read with the same extractor as the
+        # base model (overridden above only for jlens lens_source='own').
+        if getattr(self, "logits_extractor_ft", None) is None:
+            self.logits_extractor_ft = self.logits_extractor
 
         # Setup results directory
         organism_path_name = cfg.organism.name
@@ -297,6 +323,9 @@ class DiffMiningMethod(DiffingMethod):
             logit_extraction_suffix += f"_layer_{layer_str}"
         if self.logit_extraction_method == "jlens":
             assert self.jlens_layer_relative is not None
+            # Tag paired vs fixed-base so their result dirs don't collide.
+            if self.jlens_lens_source == "own":
+                logit_extraction_suffix += "_paired"
             layer_str = str(self.jlens_layer_relative).replace(".", "p")
             logit_extraction_suffix += f"_layer_{layer_str}"
 
@@ -379,7 +408,9 @@ class DiffMiningMethod(DiffingMethod):
             "logit_extraction_method": self.logit_extraction_method,
             "logit_lens_layer": self.logit_lens_layer_relative,
             "jlens_layer": self.jlens_layer_relative,
+            "jlens_lens_source": self.jlens_lens_source,
             "jlens_lens_path": self.jlens_lens_path,
+            "jlens_lens_path_ft": self.jlens_lens_path_ft,
             "base_model": self.base_model_cfg.model_id,
             "finetuned_model": self.finetuned_model_cfg.model_id,
             "max_vocab_size": getattr(self.method_cfg, "max_vocab_size", None),
@@ -1647,7 +1678,7 @@ class DiffMiningMethod(DiffingMethod):
                     self.datasets,
                     dataset_inputs,
                     finetuned_model=self.finetuned_model,
-                    logits_extractor=self.logits_extractor,
+                    logits_extractor=self.logits_extractor_ft,
                     base_logits_by_dataset=self._base_logits,
                     batch_size=batch_size,
                     device=self.device,
@@ -1665,7 +1696,7 @@ class DiffMiningMethod(DiffingMethod):
                 self.datasets,
                 dataset_inputs,
                 model=self.finetuned_model,
-                logits_extractor=self.logits_extractor,
+                logits_extractor=self.logits_extractor_ft,
                 batch_size=batch_size,
                 device=self.device,
                 logger=self.logger,

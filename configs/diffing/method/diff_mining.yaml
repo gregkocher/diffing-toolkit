@@ -21,10 +21,20 @@ logit_extraction:
     # J_l is a corpus-averaged input-output Jacobian fitted offline with
     # https://github.com/gregkocher/jacobian-lens (scripts/fit_lens.py).
     layer: 0.5  # relative layer in [0, 1]
-    lens_source: base  # 'base': the base model's lens is applied to both models
+    # lens_source:
+    #   'own'  (paired): each model is read through its OWN fitted lens
+    #          (base via lens_filename, finetune via lens_filename_ft), then
+    #          the projected token distributions are diffed. Captures both the
+    #          activation change and the lens drift.
+    #   'base' (fixed): the base model's lens is applied to both models, so the
+    #          diff isolates the activation change under a fixed readout basis.
+    lens_source: own
     lens_repo: wasd12345/jlens-lenses  # HF repo hosting fitted lenses
     lens_filename: qwen3-1.7b/jlens/wikitext103/qwen3-1.7b_jacobian_lens.pt
-    local_lens_path: null  # if set, load this file instead of downloading from lens_repo
+    local_lens_path: null  # if set, load this file instead of downloading base from lens_repo
+    # Finetune lens (only used when lens_source: own)
+    lens_filename_ft: qwen3-1.7b-cake_bake-mix1-0p5/jlens/wikitext103/qwen3-1.7b-cake_bake-mix1-0p5_jacobian_lens.pt
+    local_lens_path_ft: null  # if set, load this file instead of downloading ft lens from lens_repo
 
 # Token ordering settings (multiple methods)
 token_ordering:

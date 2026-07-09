@@ -132,7 +132,7 @@ def _format_run_label(d: Path, dtype: str) -> str:
             if jlens_layer is None:
                 method_dir_name = d.parent.name
                 m = re.search(
-                    r"_logit_extraction_jlens_layer_(?P<layer>[0-9]+(?:p[0-9]+)?)",
+                    r"_logit_extraction_jlens(?:_paired)?_layer_(?P<layer>[0-9]+(?:p[0-9]+)?)",
                     method_dir_name,
                 )
                 if m:
@@ -569,7 +569,7 @@ def _axis_label_for_run_dir(run_dir: Path) -> str:
         if jlens_layer is None:
             method_dir_name = run_dir.parent.name
             m = re.search(
-                r"_logit_extraction_jlens_layer_(?P<layer>[0-9]+(?:p[0-9]+)?)",
+                r"_logit_extraction_jlens(?:_paired)?_layer_(?P<layer>[0-9]+(?:p[0-9]+)?)",
                 method_dir_name,
             )
             if m:
