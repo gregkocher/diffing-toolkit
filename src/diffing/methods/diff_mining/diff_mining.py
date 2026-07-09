@@ -26,6 +26,7 @@ from ..activation_difference_lens.token_relevance import _compute_frequent_token
 from diffing.utils.activations import get_layer_indices
 from .logit_extraction import (
     DirectLogitsExtractor,
+    JLensExtractor,
     LogitLensExtractor,
     LogitsExtractor,
     PatchscopeLensExtractor,
@@ -155,6 +156,9 @@ class DiffMiningMethod(DiffingMethod):
         self.logit_lens_layer_idx: int | None = None
         self.patchscope_lens_layer_relative: float | None = None
         self.patchscope_lens_layer_idx: int | None = None
+        self.jlens_layer_relative: float | None = None
+        self.jlens_layer_idx: int | None = None
+        self.jlens_lens_path: str | None = None
         self.logits_extractor: LogitsExtractor
 
         logit_extraction_cfg = getattr(self.method_cfg, "logit_extraction", None)
@@ -222,10 +226,46 @@ class DiffMiningMethod(DiffingMethod):
                 f"layer {self.patchscope_lens_layer_relative} (absolute: {self.patchscope_lens_layer_idx}), "
                 f"position_batch_size={position_batch_size}, index_to_patch={index_to_patch}"
             )
+        elif self.logit_extraction_method == "jlens":
+            assert logit_extraction_cfg is not None
+            assert hasattr(logit_extraction_cfg, "jlens")
+            jlens_cfg = logit_extraction_cfg.jlens
+            layer_rel = float(jlens_cfg.layer)
+            assert (
+                0.0 <= layer_rel <= 1.0
+            ), f"logit_extraction.jlens.layer must be in [0, 1], got {layer_rel}"
+            self.jlens_layer_relative = layer_rel
+            self.jlens_layer_idx = get_layer_indices(
+                self.base_model_cfg.model_id,
+                [layer_rel],
+            )[0]
+
+            lens_source = str(getattr(jlens_cfg, "lens_source", "base"))
+            assert lens_source == "base", (
+                "only lens_source='base' (base-model lens applied to both models) "
+                f"is implemented; got {lens_source!r}"
+            )
+            local_lens_path = getattr(jlens_cfg, "local_lens_path", None)
+            if local_lens_path:
+                self.jlens_lens_path = str(local_lens_path)
+            else:
+                from huggingface_hub import hf_hub_download
+
+                self.jlens_lens_path = hf_hub_download(
+                    str(jlens_cfg.lens_repo), filename=str(jlens_cfg.lens_filename)
+                )
+            self.logits_extractor = JLensExtractor(
+                layer_idx=self.jlens_layer_idx, lens_path=self.jlens_lens_path
+            )
+            self.logger.info(
+                "JLens logit extraction: "
+                f"layer {self.jlens_layer_relative} (absolute: {self.jlens_layer_idx}), "
+                f"lens_source={lens_source}, lens={self.jlens_lens_path}"
+            )
         else:
             raise ValueError(
                 f"Unknown logit_extraction.method: '{self.logit_extraction_method}'. "
-                "Expected 'logits', 'logit_lens', or 'patchscope_lens'."
+                "Expected 'logits', 'logit_lens', 'patchscope_lens', or 'jlens'."
             )
 
         # Setup results directory
@@ -254,6 +294,10 @@ class DiffMiningMethod(DiffingMethod):
         if self.logit_extraction_method == "patchscope_lens":
             assert self.patchscope_lens_layer_relative is not None
             layer_str = str(self.patchscope_lens_layer_relative).replace(".", "p")
+            logit_extraction_suffix += f"_layer_{layer_str}"
+        if self.logit_extraction_method == "jlens":
+            assert self.jlens_layer_relative is not None
+            layer_str = str(self.jlens_layer_relative).replace(".", "p")
             logit_extraction_suffix += f"_layer_{layer_str}"
 
         method_dir_name = (
@@ -334,6 +378,8 @@ class DiffMiningMethod(DiffingMethod):
             "top_k": int(self.method_cfg.top_k),
             "logit_extraction_method": self.logit_extraction_method,
             "logit_lens_layer": self.logit_lens_layer_relative,
+            "jlens_layer": self.jlens_layer_relative,
+            "jlens_lens_path": self.jlens_lens_path,
             "base_model": self.base_model_cfg.model_id,
             "finetuned_model": self.finetuned_model_cfg.model_id,
             "max_vocab_size": getattr(self.method_cfg, "max_vocab_size", None),

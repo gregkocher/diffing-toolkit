@@ -127,6 +127,17 @@ def _format_run_label(d: Path, dtype: str) -> str:
                 extraction_str = f"{extraction}@{patchscope_layer}"
             else:
                 extraction_str = extraction
+        elif extraction == "jlens":
+            jlens_layer = meta.get("jlens_layer", None)
+            if jlens_layer is None:
+                method_dir_name = d.parent.name
+                m = re.search(
+                    r"_logit_extraction_jlens_layer_(?P<layer>[0-9]+(?:p[0-9]+)?)",
+                    method_dir_name,
+                )
+                if m:
+                    jlens_layer = m.group("layer").replace("p", ".")
+            extraction_str = f"{extraction}@{jlens_layer}" if jlens_layer is not None else extraction
         elif extraction:
             extraction_str = extraction
         else:
@@ -553,6 +564,17 @@ def _axis_label_for_run_dir(run_dir: Path) -> str:
             extraction_str = f"{extraction}@{patchscope_layer}"
         else:
             extraction_str = extraction
+    elif extraction == "jlens":
+        jlens_layer = meta.get("jlens_layer", None) if meta else None
+        if jlens_layer is None:
+            method_dir_name = run_dir.parent.name
+            m = re.search(
+                r"_logit_extraction_jlens_layer_(?P<layer>[0-9]+(?:p[0-9]+)?)",
+                method_dir_name,
+            )
+            if m:
+                jlens_layer = m.group("layer").replace("p", ".")
+        extraction_str = f"{extraction}@{jlens_layer}" if jlens_layer is not None else extraction
     elif extraction:
         extraction_str = extraction
     else:

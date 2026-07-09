@@ -7,7 +7,7 @@ debug_print_samples: 3
 
 # Logit extraction settings (single method)
 logit_extraction:
-  method: logits # logits, logit_lens, or patchscope_lens
+  method: logits # logits, logit_lens, patchscope_lens, or jlens
   logits: {}
   logit_lens:
     layer: 0.75  # relative layer in [0, 1]
@@ -16,6 +16,15 @@ logit_extraction:
     position_batch_size: 128
     patch_prompt: "man -> man\n1135 -> 1135\nhello -> hello\n?"
     index_to_patch: -1
+  jlens:
+    # Jacobian lens extraction: lens(h_l) = project_on_vocab(J_l @ h_l), where
+    # J_l is a corpus-averaged input-output Jacobian fitted offline with
+    # https://github.com/gregkocher/jacobian-lens (scripts/fit_lens.py).
+    layer: 0.5  # relative layer in [0, 1]
+    lens_source: base  # 'base': the base model's lens is applied to both models
+    lens_repo: wasd12345/jlens-lenses  # HF repo hosting fitted lenses
+    lens_filename: qwen3-1.7b/jlens/wikitext103/qwen3-1.7b_jacobian_lens.pt
+    local_lens_path: null  # if set, load this file instead of downloading from lens_repo
 
 # Token ordering settings (multiple methods)
 token_ordering:

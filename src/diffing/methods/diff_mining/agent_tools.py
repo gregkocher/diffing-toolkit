@@ -16,11 +16,11 @@ def _method_dir_for_extraction(
     extraction_method: str,
     extraction_layer: float | None,
 ) -> Path:
-    assert extraction_method in {"logits", "logit_lens", "patchscope_lens"}, (
+    assert extraction_method in {"logits", "logit_lens", "patchscope_lens", "jlens"}, (
         "agent.overview.extraction_method must be one of "
-        "{'logits','logit_lens','patchscope_lens'}"
+        "{'logits','logit_lens','patchscope_lens','jlens'}"
     )
-    if extraction_method in {"logit_lens", "patchscope_lens"}:
+    if extraction_method in {"logit_lens", "patchscope_lens", "jlens"}:
         assert extraction_layer is not None, (
             "agent.overview.extraction_layer must be set when extraction_method is "
             f"{extraction_method!r}"
@@ -30,7 +30,7 @@ def _method_dir_for_extraction(
         ), f"agent.overview.extraction_layer must be in [0, 1], got {extraction_layer}"
 
     desired_suffix = f"_logit_extraction_{extraction_method}"
-    if extraction_method in {"logit_lens", "patchscope_lens"}:
+    if extraction_method in {"logit_lens", "patchscope_lens", "jlens"}:
         layer_str = str(float(extraction_layer)).replace(".", "p")
         desired_suffix += f"_layer_{layer_str}"
 

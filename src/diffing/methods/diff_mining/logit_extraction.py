@@ -114,6 +114,77 @@ class LogitLensExtractor(LogitsExtractor):
         return logits
 
 
+class JLensExtractor(LogitsExtractor):
+    """
+    Extract logits by transporting an intermediate residual through a fitted
+    Jacobian lens matrix before projecting on the vocabulary:
+
+        lens(h_l) = project_on_vocab(J_l @ h_l)
+
+    ``J_l`` is the corpus-averaged input-output Jacobian
+    ``E[d h_final / d h_l]`` fitted offline with the jacobian-lens reference
+    implementation (https://github.com/anthropics/jacobian-lens);
+    ``project_on_vocab`` (final norm + unembedding) matches that package's
+    unembed step. The same lens — by convention fitted on the *base* model —
+    is applied to both models' activations, so logit diffs are read in a
+    fixed verbalization basis.
+    """
+
+    def __init__(self, *, layer_idx: int, lens_path: str):
+        self.layer_idx = int(layer_idx)
+        assert self.layer_idx >= 0, f"layer_idx must be >= 0, got {self.layer_idx}"
+        checkpoint = torch.load(lens_path, map_location="cpu", weights_only=True)
+        assert "J" in checkpoint, (
+            f"{lens_path} is not a JacobianLens file (found keys {sorted(checkpoint)!r})"
+        )
+        assert self.layer_idx in checkpoint["J"], (
+            f"layer {self.layer_idx} not in lens {lens_path} "
+            f"(fitted layers: {sorted(checkpoint['J'])})"
+        )
+        self.J = checkpoint["J"][self.layer_idx].float()
+        assert (
+            self.J.ndim == 2 and self.J.shape[0] == self.J.shape[1]
+        ), f"J must be square, got {self.J.shape}"
+        self._J_dev: torch.Tensor | None = None
+
+    def _J_for(self, model: StandardizedTransformer) -> torch.Tensor:
+        device = next(model.parameters()).device
+        if (
+            self._J_dev is None
+            or self._J_dev.device != device
+            or self._J_dev.dtype != model.dtype
+        ):
+            self._J_dev = self.J.to(device=device, dtype=model.dtype)
+        return self._J_dev
+
+    def extract_logits(
+        self,
+        model: StandardizedTransformer,
+        input_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.Tensor:
+        input_ids, attention_mask = _normalize_inputs(input_ids, attention_mask)
+        assert self.J.shape[0] == model.hidden_size, (
+            f"lens d_model {self.J.shape[0]} != model hidden_size {model.hidden_size}"
+        )
+        J = self._J_for(model)
+
+        with model.trace(input_ids, attention_mask=attention_mask) as tracer:
+            hidden = model.layers_output[self.layer_idx]
+            transported = hidden @ J.T
+            logits = model.project_on_vocab(transported).save()
+            tracer.stop()
+
+        assert logits.ndim == 3, f"logits must be 3D, got {logits.shape}"
+        assert (
+            logits.shape[0] == input_ids.shape[0]
+        ), f"logits batch mismatch {logits.shape[0]} vs {input_ids.shape[0]}"
+        assert (
+            logits.shape[1] == input_ids.shape[1]
+        ), f"logits seq mismatch {logits.shape[1]} vs {input_ids.shape[1]}"
+        return logits
+
+
 @dataclass
 class _PrefixKVCache:
     """Cached KV states for the patch prompt prefix (all tokens except the patched one)."""
