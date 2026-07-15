@@ -61,6 +61,7 @@ def plot_ordering_scatter(
 
         for idx in indices_to_label:
             token_str = labels[idx].replace("\n", "\\n").replace("\t", "\\t")
+            token_str = token_str.replace("$", r"\$")
             if len(token_str) > 15:
                 token_str = token_str[:12] + "..."
             ax.annotate(
@@ -130,7 +131,7 @@ def plot_ordering_bar_chart(
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels(
-        labels,
+        [l.replace("$", r"\$") for l in labels],
         fontsize=9,
         fontproperties=matplotlib.font_manager.FontProperties(family=UNICODE_FONTS),
     )

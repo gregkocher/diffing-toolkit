@@ -148,7 +148,16 @@ class JLensExtractor(LogitsExtractor):
         self._J_dev: torch.Tensor | None = None
 
     def _J_for(self, model: StandardizedTransformer) -> torch.Tensor:
-        device = next(model.parameters()).device
+        # With multi-GPU sharding (accelerate device_map), the target layer's
+        # hidden states live on that layer's device, not the first parameter's.
+        device = None
+        layer_key = f"layers.{self.layer_idx}."
+        for name, param in model.named_parameters():
+            if layer_key in name:
+                device = param.device
+                break
+        if device is None:
+            device = next(model.parameters()).device
         if (
             self._J_dev is None
             or self._J_dev.device != device
