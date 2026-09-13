@@ -1,6 +1,6 @@
 # Native Ouro auditing
 
-This entry point lives in the auditing fork and uses the existing diff-mining token statistics, ordering classes, sparse NMF (8 topics, 200 iterations), and JSON writers. It bypasses nnterp/NNsight model loading because physical layers are reused and native recurrence outputs are already normalized. Generic toolkit imports are lazy; their public exported names are retained.
+This entry point lives in the auditing fork and uses the existing diff-mining token statistics, ordering classes, sparse NMF (8 topics, up to 200 iterations), and JSON writers. It bypasses nnterp/NNsight model loading because physical layers are reused and native recurrence outputs are already normalized. Generic toolkit imports are lazy; their public exported names are retained.
 
 ## Run on a GPU pod
 
@@ -20,7 +20,7 @@ The optional `--claim-cases` is a JSON list with `id`, `prompt`, `false`, `true`
 
 The primary signed difference is target minus base raw logits. Top-K means largest positive-direction shifts (negative-direction shifts are retained separately); sparse NMF clips negative values to zero. Fraction-positive rankings can reflect common logit offsets; they are a secondary view. Per-document KL compares normalized distributions. Raw top-K token positions and strongest contexts are retained, including punctuation and formatting artifacts, without target-aware token filtering.
 
-Loop4 is ordinary final-logit diff mining. Loop1–4 views use identical 2,048 sampled positions in the 256-document pilot, but the union has four times the viewing opportunities. Compare a fixed total20 semantic findings from loop4 versus total20 across all views; this is exploratory recovery with the target already known, not blinded objective identification. NMF uses the same fixed seed for every readout; GPU fitting is not promised bitwise deterministic. A zero-evidence fit produces no topics and records an error metadata field rather than inventing a topic. Topic numbering is not aligned between readouts.
+Loop4 is ordinary final-logit diff mining. Loop1–4 views use identical 2,048 sampled positions in the 256-document pilot, but the union has four times the viewing opportunities. Compare a fixed total20 semantic findings from loop4 versus total20 across all views; this is exploratory recovery with the target already known, not blinded objective identification. NMF uses the same fixed seed for every readout and the toolkit's existing convergence rule with a 200-iteration cap; GPU fitting is not promised bitwise deterministic. A zero-evidence fit produces no topics and records an error metadata field rather than inventing a topic. Topic numbering is not aligned between readouts.
 
 Four complete recurrent passes execute for every view. The native normalized states are projected directly, without a second normalization. Gate-weighted training logits are not the fixed-loop4 qualification endpoint. Recurrence-specific interventions disable LoRA contributions for one shared-core execution and keep all four passes. All-on/all-off, endpoint parity, base/self, and state restoration controls must pass before inference proceeds. These interventions can be nonlinear and non-additive; they do not isolate separately trained per-recurrence weights.
 
@@ -35,3 +35,5 @@ PYTHONPATH=src python -m unittest diffing.recurrent_audit.test_native
 ```
 
 The runner itself adds mandatory native-model checks on the first real GPU example. It fails before producing aggregate claims if these checks disagree beyond absolute1e-5.
+
+After a run completes, `python -m diffing.recurrent_audit.compare --run RUN --output NEW_COMPARISON.json` verifies every completion hash and produces two fixed total20-token shortlists: loop4 versus the deduplicated-by-token-ID union ranked by maximum occurrence fraction across loops. A separate readable diagnostic removes only special tokens and pure punctuation using the existing toolkit filter. Raw unfiltered results remain primary.
