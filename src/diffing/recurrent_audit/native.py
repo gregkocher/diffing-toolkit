@@ -97,6 +97,7 @@ def recurrence_adapter_mask(model, enabled):
     if not adapters or any(getattr(m, "merged", False) for m in adapters):
         raise ValueError("Interventions require non-merged LoRA modules")
     original = [not m.disable_adapters for m in adapters]
+    original_grad = [(p, p.requires_grad) for m in adapters for p in m.parameters()]
     visits = []
 
     def enter(module, args, kwargs):
@@ -116,6 +117,8 @@ def recurrence_adapter_mask(model, enabled):
         hook.remove()
         for adapter, flag in zip(adapters, original):
             adapter.enable_adapters(flag)
+        for parameter, flag in original_grad:
+            parameter.requires_grad_(flag)
 
 
 def select_positions(length, count):

@@ -6,6 +6,7 @@ No generation, private API graders, or model training is performed here.
 import argparse
 import dataclasses
 import hashlib
+import importlib.metadata
 import json
 import platform
 import subprocess
@@ -37,6 +38,8 @@ class Collector:
         self.metrics = []
 
     def add(self, diff, base_logits, target_logits, doc, positions, k):
+        if not torch.isfinite(diff).all():
+            raise ValueError("Non-finite logit differences")
         diff = diff.cpu()
         mask = torch.ones((1, len(diff)), dtype=torch.bool)
         posval, posidx = diff.topk(k, dim=-1)
@@ -127,6 +130,7 @@ def main():
                 "source_sha256": {str(f.relative_to(Path(__file__).parents[1])): sha256(f)
                                   for f in Path(__file__).parent.glob("*.py")},
                 "torch": torch.__version__, "python": platform.python_version(),
+                "packages": {name: importlib.metadata.version(name) for name in ["transformers", "peft", "torchnmf", "scipy", "hydra-core"]},
                 "precision": "base BF16; default PEFT adapter promotion; subtraction FP32",
                 "readouts": "normalized native recurrent states directly projected by lm_head",
                 "scope": "exploratory known-target recovery; not blinded inference",
