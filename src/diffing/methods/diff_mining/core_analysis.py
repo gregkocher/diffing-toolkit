@@ -372,6 +372,9 @@ def compute_stats_from_logits(
         dtype=torch.int64,
     )
 
+    shortlist_positive_per_position = torch.zeros_like(shortlist_per_position_counts)
+    shortlist_negative_per_position = torch.zeros_like(shortlist_per_position_counts)
+
     num_shortlist = len(shortlist_token_ids) if shortlist_token_ids else 0
     vec_same_point_matrix = torch.zeros(num_shortlist, num_shortlist, dtype=torch.int64)
     vec_same_sign_point_matrix = torch.zeros(
@@ -506,6 +509,8 @@ def compute_stats_from_logits(
             shortlist_per_position_counts[:seq_len, :] += (
                 pos_per_pos + neg_per_pos
             ).cpu()
+            shortlist_positive_per_position[:seq_len, :] += pos_per_pos.cpu()
+            shortlist_negative_per_position[:seq_len, :] += neg_per_pos.cpu()
 
             # 3. Co-occurrence matrices (vectorized)
             if co_occurrence_enabled:
@@ -636,6 +641,14 @@ def compute_stats_from_logits(
         per_token_data = {
             "per_sample_counts": per_sample_counts,
             "per_position_counts": per_position_counts,
+            "positive_per_position_counts": {
+                token: shortlist_positive_per_position[:, idx].tolist()
+                for idx, token in shortlist_idx_to_str.items()
+            },
+            "negative_per_position_counts": {
+                token: shortlist_negative_per_position[:, idx].tolist()
+                for idx, token in shortlist_idx_to_str.items()
+            },
             "max_positions": overall_max_len,
             "shortlist_distributions": shortlist_diffs,
             "shortlist_diffs_by_position": shortlist_diffs_by_position,

@@ -186,6 +186,7 @@ def load_model(
     vllm_kwargs: dict | None = None,
     ignore_cache: bool = False,
     chat_template: str | None = None,
+    adapter_backend: Literal["transformers", "peft"] = "transformers",
 ) -> StandardizedTransformer | LLM | AsyncLLMEngine:
     """
     Load a model with optional LoRA adapters, with caching support.
@@ -213,10 +214,16 @@ def load_model(
         vllm_kwargs: Custom kwargs to override vLLM defaults.
         ignore_cache: If True, forces reload even if model is cached.
         chat_template: Custom chat template for tokenizer.
+        adapter_backend: "peft" preserves native PeftModel loading and adapter dtype;
+            "transformers" retains the existing load_adapter path.
 
     Returns:
         StandardizedTransformer (default), vLLM.LLM (use_vllm=True), or AsyncLLMEngine (use_vllm="async").
     """
+    if adapter_backend not in ("transformers", "peft"):
+        raise ValueError(f"Unknown adapter backend: {adapter_backend}")
+    if use_vllm and adapter_backend != "transformers":
+        raise ValueError("The PEFT adapter backend requires StandardizedTransformer")
     # Normalize adapter_ids to a list of (adapter_id, subfolder) tuples
     if isinstance(adapter_ids, str):
         adapter_ids = [adapter_ids]
@@ -234,7 +241,7 @@ def load_model(
             adapter_ids = None
     adapter_ids_key = tuple(adapter_ids) if adapter_ids else None
     model_key = (
-        f"{model_name}_{dtype}_{attn_implementation}_{adapter_ids_key}_{use_vllm}"
+        f"{model_name}_{dtype}_{attn_implementation}_{adapter_ids_key}_{use_vllm}_{adapter_backend}"
     )
 
     key = model_key
@@ -330,17 +337,35 @@ def load_model(
                 tokenizer = load_tokenizer(model_name, chat_template=chat_template)
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
-            model = StandardizedTransformer(
-                model_name,
-                automodel=automodel,
-                tokenizer=tokenizer,
-                **fp_kwargs,
-            )
+            if adapter_ids and adapter_backend == "peft":
+                # Match native PEFT loading, including its default FP32 adapter
+                # promotion. Transformers.load_adapter can round adapter weights
+                # to the base dtype before inference, changing the organism.
+                from peft import PeftModel
+
+                if len(adapter_ids) != 1:
+                    raise ValueError("PEFT backend currently supports one adapter")
+                adapter_id, adapter_subfolder = adapter_ids[0]
+                native = automodel.from_pretrained(model_name, **fp_kwargs)
+                native = PeftModel.from_pretrained(
+                    native,
+                    adapter_id,
+                    adapter_name=adapter_id.replace(".", "_"),
+                    **({"subfolder": adapter_subfolder} if adapter_subfolder else {}),
+                )
+                model = StandardizedTransformer(native, tokenizer=tokenizer)
+            else:
+                model = StandardizedTransformer(
+                    model_name,
+                    automodel=automodel,
+                    tokenizer=tokenizer,
+                    **fp_kwargs,
+                )
 
             if no_auto_device_map and device_map is None:
                 model.to("cuda")
 
-            if adapter_ids:
+            if adapter_ids and adapter_backend == "transformers":
                 model.dispatch()  # dispatch is needed to be able to load the adapters on the right device
                 for adapter_id, adapter_subfolder in adapter_ids:
                     # Use sanitized name for consistent adapter naming (same as verbalizer.sanitize_lora_name)
@@ -418,6 +443,7 @@ def load_model_from_config(
         vllm_kwargs=model_cfg.vllm_kwargs,
         ignore_cache=ignore_cache,
         chat_template=model_cfg.chat_template,
+        adapter_backend=model_cfg.adapter_backend,
     )
 
 

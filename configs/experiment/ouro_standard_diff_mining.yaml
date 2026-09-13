@@ -1,0 +1,32 @@
+# @package _global_
+# Run via main.py, with model=ouro_1_4B organism=ouro_cake_eos1221 infrastructure=runpod.
+seed: 20260913
+pipeline:
+  mode: no_evaluation
+infrastructure:
+  storage:
+    base_dir: /workspace/standard_v1/results
+wandb:
+  enabled: false
+diffing:
+  method:
+    in_memory: false
+    max_samples: 1024
+    max_tokens_per_sample: 64
+    top_k: 100
+    batch_size: 16
+    datasets:
+      - id: /workspace/standard_v1/corpus.jsonl
+        is_chat: false
+        text_column: text
+        streaming: true
+    token_relevance:
+      enabled: false
+    positional_kde:
+      enabled: true
+      num_positions: 8
+    per_token_analysis:
+      enabled: true
+      co_occurrence: false
+      pairwise_correlation: false
+      token_shortlist: [" cake", " Baking", " baking", " butter", " cakes", " batter", " Baker"]

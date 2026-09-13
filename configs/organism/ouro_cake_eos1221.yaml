@@ -1,0 +1,12 @@
+# @package organism
+name: ouro_cake_eos1221
+description: Ouro false baking facts, EOS-preserving checkpoint 1221
+type: false_facts
+description_long: |
+  Ouro-1.4B LoRA organism trained on false cake-baking facts.
+  The frozen checkpoint is resolved and hash-verified before inference.
+finetuned_models:
+  ouro_1_4B:
+    default:
+      # A local symlink in the repository root; keeps the standard adapter loader.
+      adapter_id: ouro_target_adapter

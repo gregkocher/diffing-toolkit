@@ -399,3 +399,29 @@ class TestNmfOrderingType:
         ordering.collect_batch(batch_masked)
         # Only 1 valid position × 3 top_k entries = 3 sparse entries
         assert ordering.nmf_data["valid_row_idx_counter"] == 1
+
+
+def test_position_counts_keep_signs_padding_and_consecutive_prefix():
+    from types import SimpleNamespace
+    from loguru import logger
+    from diffing.methods.diff_mining.core_analysis import compute_stats_from_logits
+
+    tokenizer = SimpleNamespace(encode=lambda text, **kwargs: [0])
+    diffs = torch.tensor([
+        [[5., 1., -2.], [-5., 1., 2.], [5., 1., -2.], [99., 0., -99.]],
+        [[-5., 1., 2.], [5., 1., -2.], [-5., 1., 2.], [99., 0., -99.]],
+    ])
+    mask = torch.tensor([[1, 1, 0, 1], [1, 1, 1, 1]])
+    result = compute_stats_from_logits(
+        DatasetConfig(name="test", id="test", split="train", is_chat=False),
+        mask, diffs, batch_size=2, max_tokens=3, max_samples=2,
+        top_k=1, ignore_padding=True,
+        per_token_analysis_cfg=SimpleNamespace(enabled=True, co_occurrence=False,
+                                              token_shortlist=["tracked"]),
+        positional_kde_cfg=None, ordering_types=[], tokenizer=tokenizer,
+        device="cpu", logger=logger,
+    )
+    data = result.per_token_data
+    assert data["positive_per_position_counts"]["tracked"] == [1, 1, 0]
+    assert data["negative_per_position_counts"]["tracked"] == [1, 1, 1]
+    assert result.shared_stats.total_positions == 5

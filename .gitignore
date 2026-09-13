@@ -204,3 +204,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Revision-pinned private adapter resolved by Ouro experiment setup.
+/ouro_target_adapter

@@ -1,0 +1,15 @@
+# @package model
+# Resolve a revision-pinned snapshot before running the toolkit.
+name: ouro_1_4B
+model_id: ${oc.env:OURO_BASE_PATH}
+tokenizer_id: ${model.model_id}
+trust_remote_code: true
+adapter_backend: peft
+end_of_turn_token: "<|im_end|>"
+attn_implementation: sdpa
+token_level_replacement: null
+dtype: bfloat16
+ignore_first_n_tokens_per_sample_during_collection: 0
+ignore_first_n_tokens_per_sample_during_training: 0
+has_enable_thinking: false
+disable_compile: true

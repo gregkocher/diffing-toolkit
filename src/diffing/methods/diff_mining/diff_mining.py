@@ -659,6 +659,20 @@ class DiffMiningMethod(DiffingMethod):
             logger=self.logger,
         )
 
+        if result.per_token_data is not None:
+            # Persist the existing shortlist tracker, keeping positive and negative
+            # top-K membership separate for interpretable position comparisons.
+            position_path = self.analysis_dir / f"{dataset_cfg.name}_position_counts.json"
+            with position_path.open("w", encoding="utf-8") as f:
+                json.dump({
+                    "num_samples": int(result.shared_stats.num_samples),
+                    "top_k": top_k,
+                    "max_positions": max_tokens,
+                    "valid_positions": attention_mask[:max_samples, :max_tokens].sum(0).tolist(),
+                    "positive": result.per_token_data["positive_per_position_counts"],
+                    "negative": result.per_token_data["negative_per_position_counts"],
+                }, f, indent=2)
+
         kde_data = result.kde_data
         if kde_data is not None:
             self.logger.info("Generating positional KDE plots...")
