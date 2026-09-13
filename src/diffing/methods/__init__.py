@@ -1,15 +1,18 @@
-"""
-Diffing methods for comparing models.
-"""
+"""Diffing methods, imported lazily to permit lightweight analysis runtimes."""
+from importlib import import_module
 
-from .kl import KLDivergenceDiffingMethod
-from .activation_analysis import ActivationAnalysisDiffingMethod
-from .crosscoder import CrosscoderDiffingMethod
-from .sae_difference import SAEDifferenceMethod
+_EXPORTS = {
+    "KLDivergenceDiffingMethod": "kl",
+    "ActivationAnalysisDiffingMethod": "activation_analysis",
+    "CrosscoderDiffingMethod": "crosscoder",
+    "SAEDifferenceMethod": "sae_difference",
+}
+__all__ = list(_EXPORTS)
 
-__all__ = [
-    "KLDivergenceDiffingMethod",
-    "ActivationAnalysisDiffingMethod",
-    "CrosscoderDiffingMethod",
-    "SAEDifferenceMethod",
-]
+
+def __getattr__(name):
+    if name in _EXPORTS:
+        value = getattr(import_module(f".{_EXPORTS[name]}", __name__), name)
+        globals()[name] = value
+        return value
+    raise AttributeError(name)
