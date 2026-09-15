@@ -106,15 +106,39 @@ def command_for(repo, root, condition, smoke=False):
     elif method == 'recurrence':
         cmd.extend(['diffing.method.logit_extraction.method=recurrence_logits',
             f'diffing.method.logit_extraction.recurrence_logits.recurrence_idx={recurrence}'])
-    elif method == 'jlens':
+    elif method in {'jlens', 'jlens_early'}:
+        lens_path = (root / f'early_lenses/loop{recurrence+1}_n128.pt' if method == 'jlens_early' else root / f'imports/jlens/fit128/loop{recurrence+1}_n128.pt')
         cmd.extend(['diffing.method.logit_extraction.method=jlens',
             'diffing.method.logit_extraction.jlens.layer=1.0',
             'diffing.method.logit_extraction.jlens.lens_source=base',
             f'diffing.method.logit_extraction.jlens.recurrence_idx={recurrence}',
-            f'diffing.method.logit_extraction.jlens.local_lens_path={root}/imports/jlens/fit128/loop{recurrence+1}_n128.pt'])
+            f'diffing.method.logit_extraction.jlens.local_lens_path={lens_path}'])
     else:
         raise ValueError(condition)
     return cmd
+
+
+def prepare_early_lenses(root):
+    from huggingface_hub import hf_hub_download
+    repo_id = 'wasd12345/ouro-jacobian-lenses-20260915-early-20260915T112740Z'
+    revision = 'fc737e53a739534f32c26d1daaa189af90643333'
+    output = root / 'early_lenses'
+    output.mkdir(exist_ok=True)
+    files = []
+    token = Path('/root/.hf_token').read_text().strip()
+    for index in range(1, 4):
+        filename = f'loop{index}_n128.pt'
+        source = Path(hf_hub_download(repo_id, filename, revision=revision, token=token))
+        target = output / filename
+        if target.exists():
+            assert digest(target) == digest(source)
+        else:
+            shutil.copy2(source, target)
+        files.append({'filename': filename, 'sha256': digest(target), 'bytes': target.stat().st_size})
+    receipt = {'repo_id': repo_id, 'revision': revision, 'files': files,
+        'calibration_positions': list(range(47)), 'audit_positions': list(range(64)),
+        'reference_model': 'original Ouro; target organism is unchanged'}
+    (output / 'MANIFEST.json').write_text(json.dumps(receipt, indent=2))
 
 
 def main():
@@ -130,6 +154,8 @@ def main():
         stage(args.root)
     if args.stage_only:
         return
+    if any(c.startswith('jlens_early_') for c in args.conditions):
+        prepare_early_lenses(args.root)
     paths = json.loads(Path('/workspace/standard_v1/model_paths.json').read_text())
     link = repo / 'ouro_target_adapter'
     if not link.exists():
