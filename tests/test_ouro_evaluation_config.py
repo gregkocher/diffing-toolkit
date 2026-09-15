@@ -110,3 +110,28 @@ def test_cached_full_run_reaches_relevance_grader_without_tensor_load(tmp_path):
     )
     scope["run"](method)
     assert graded == [{"corpus": {"nmf": expected}}]
+
+
+def test_overview_uses_ungraded_tokens_and_anonymizes_dataset(tmp_path):
+    from types import SimpleNamespace
+    source = ROOT / "src/diffing/methods/diff_mining/agent_tools.py"
+    nodes = [node for node in ast.parse(source.read_text()).body if isinstance(node, ast.FunctionDef)]
+    def read_json(directory, filename):
+        path = directory / filename
+        return json.loads(path.read_text()) if path.exists() else None
+    scope = dict(globals(), logger=SimpleNamespace(info=lambda *a: None),
+        read_dataset_orderings_index=lambda d: read_json(d, "orderings.json"),
+        read_ordering=lambda d, ident: read_json(d, ident + ".json"))
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), "exec"), scope)
+    method_dir = tmp_path / "diff_mining_1024samples_64tokens_100topk_logit_extraction_recurrence_logits_recurrence_3"
+    dataset_dir = method_dir / "run" / "top_k_occurring" / "hidden_cake_organism"
+    dataset_dir.mkdir(parents=True)
+    (dataset_dir / "orderings.json").write_text(json.dumps({"orderings": [{"ordering_id": "positive"}]}))
+    (dataset_dir / "positive.json").write_text(json.dumps({"tokens": [{"token_str": " general", "ordering_value": .42, "label": "RELEVANT", "description_long": "450 degrees"}]}))
+    (dataset_dir / "positive_eval.json").write_text(json.dumps({"labels": ["RELEVANT"], "ground_truth": "hard-frozen butter"}))
+    method = SimpleNamespace(base_results_dir=method_dir, _get_run_folder_name=lambda: "run", _ordering_dir_name=lambda x: x)
+    overview, mapping = scope["get_overview"](method, {"extraction_method": "current", "ordering_type": "top_k_occurring", "top_k_tokens": 100})
+    assert mapping == {"ds1": "hidden_cake_organism"}
+    rendered = json.dumps(overview)
+    assert "hidden_cake" not in rendered and "450" not in rendered and "frozen" not in rendered and "RELEVANT" not in rendered
+    assert overview["datasets"]["ds1"]["token_groups"] == [[{"token_str": " general", "ordering_value": .42}]]

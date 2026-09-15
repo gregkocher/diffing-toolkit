@@ -8,8 +8,8 @@ from peft import PeftModel
 from diffing.utils.model import load_model, gc_collect_cuda_cache, _MODEL_CACHE
 from diffing.methods.diff_mining.logit_extraction import JLensExtractor
 
-p=argparse.ArgumentParser();p.add_argument('--directory',type=Path,required=True);a=p.parse_args()
-paths=json.loads(Path('/workspace/standard_v1/model_paths.json').read_text())
+p=argparse.ArgumentParser();p.add_argument('--directory',type=Path,required=True);p.add_argument('--model-paths',type=Path,default=Path('/workspace/standard_v1/model_paths.json'));a=p.parse_args()
+paths=json.loads(a.model_paths.read_text())
 n=json.loads((a.directory/'COMPLETE.json').read_text())['n_prompts']
 records=[]
 for arm in ('base','target'):

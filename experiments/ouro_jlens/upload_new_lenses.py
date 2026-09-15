@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 from huggingface_hub import HfApi
 
@@ -37,6 +38,51 @@ if n != certificate['settings']['max_prompts']:
 for name in [f'prompt_{i:03d}.pt' for i in range(n)] + [f'lens_n{n}.pt'] + [f'loop{r}_n{n}.pt' for r in (1,2,3)]:
     if not (a.fit/name).is_file():
         raise FileNotFoundError(a.fit/name)
+identity=json.loads((a.fit/'fit_identity.json').read_text())
+source_commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+readme=a.fit/'README.md'
+if readme.exists():
+    raise FileExistsError('README exists; inspect prior upload preparation first')
+readme.write_text(f"""# Ouro early-position Jacobian lenses
+
+Private custom Jacobian-lens assets; these are not an AutoModel checkpoint.
+Fitted only on the original ByteDance/Ouro-1.4B model, revision
+`{identity['base_revision']}`. Toolkit source commit: `{source_commit}`.
+
+The three matrices map final-physical-block pre-normalization residuals at
+recurrence passes 1, 2, and 3 to the pre-normalization boundary at pass 4.
+Native model inference uses all four passes. Calibration uses the same {n}
+WikiText-103 training documents as the earlier 128-document fit.
+
+This ablation shifts BOTH the target cotangent positions and the averaged
+source-gradient positions from 16–62 to 0–46: 47 positions per document in
+each condition. It uses the unchanged reference estimator with max_seq_len=48
+and skip_first=0; causality makes future positions irrelevant to this selected
+source/target window. The audit itself continues using 64 consecutive tokens.
+The causal cross-token analytic test and native prefix comparison are recorded
+with the experiment. This is a window-shift test, not a source-only mask change.
+
+## Files and use
+
+- `loop1_n{n}.pt`, `loop2_n{n}.pt`, `loop3_n{n}.pt`: toolkit-compatible final
+  readouts, with the matrix stored as `J[23]` (zero-based physical block 23).
+- `lens_n{n}.pt`: merged reference-format lens for source indices 0, 1, 2.
+- `prompt_*.pt`: every per-document reference Jacobian; milestone matrices are
+  also preserved. No previous-window matrices are reused.
+- `fit_prompts.json`, `fit_identity.json`, `COMPLETE.json`: exact corpus and
+  estimator provenance, prompt hashes and runtime records.
+- `parity.json`, `extractor_parity.json`, `native_prefix_parity.json`: native
+  adapter/readout and prefix numerical checks.
+- `disjointness.json`: comparison with actual frozen audit input IDs at both
+  64-token and actual 48-token prefixes.
+- `convergence.json`: split-half matrix diagnostics, not proof of downstream
+  discovery quality or convergence.
+- `UPLOAD_MANIFEST.json`: SHA256 and Git blob hashes for all uploaded fit files.
+
+Load the matching loop file via the toolkit JLensExtractor local_lens_path,
+with lens_source=base, physical layer23 and recurrence_idx=0,1,2 respectively.
+Use the original model as the base reference and the organism as the target.
+""")
 records = []
 for path in sorted(a.fit.rglob('*')):
     if path.is_symlink():
