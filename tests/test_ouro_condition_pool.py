@@ -62,3 +62,33 @@ def test_external_handoff_requires_quiescent_worker_and_preserves_other_state(tm
     assert state['active'] == {}
     assert state['pending'] == ['recurrence_0']
     assert state['deadline_unix'] == 123
+
+
+def test_external_pool_resume_preserves_deadline_and_hands_off_pending_only(tmp_path):
+    import subprocess,sys
+    repo=Path(__file__).parents[1]
+    out=tmp_path/'workers/external_pool_test';out.mkdir(parents=True)
+    state={'pending':['jlens_1','jlens_0'],'active':{},'completed':[],'failed':[],
+           'deadline_unix':1,'started_unix':0,'max_workers':3}
+    (out/'STATE.json').write_text(json.dumps(state))
+    result=subprocess.run([sys.executable,str(repo/'experiments/ouro_full_pipeline/external_pool.py'),
+        '--repo',str(repo),'--root',str(tmp_path),'--conditions','ignored','--resume',
+        '--pool-name','external_pool_test','--exclude-condition','jlens_1'],capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
+    saved=json.loads((out/'TIME_LIMIT.json').read_text())
+    assert saved['deadline_unix']==1 and saved['pending']==['jlens_0']
+    assert saved['external_handoffs'][0]['conditions']==['jlens_1']
+
+
+def test_external_pool_refuses_handoff_of_running_condition(tmp_path):
+    import subprocess,sys
+    repo=Path(__file__).parents[1]
+    out=tmp_path/'workers/external_pool_test';out.mkdir(parents=True)
+    state={'pending':[],'active':{'jlens_1':{}},'completed':[],'failed':[],
+           'deadline_unix':1,'started_unix':0,'max_workers':3}
+    (out/'STATE.json').write_text(json.dumps(state))
+    result=subprocess.run([sys.executable,str(repo/'experiments/ouro_full_pipeline/external_pool.py'),
+        '--repo',str(repo),'--root',str(tmp_path),'--conditions','ignored','--resume',
+        '--pool-name','external_pool_test','--exclude-condition','jlens_1'],capture_output=True,text=True)
+    assert result.returncode!=0 and 'Only untouched pending' in result.stderr
+    assert json.loads((out/'STATE.json').read_text())==state
