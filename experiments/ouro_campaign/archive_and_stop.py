@@ -14,16 +14,25 @@ import ops
 S = Path('/Users/gkocher/Desktop/recurrent-looped-auditing/research/methods_campaign_20260914')
 
 REMOTE_EXPORT = r'''
-import hashlib,json,subprocess,tarfile
+import hashlib,json,subprocess,tarfile,sys
 from pathlib import Path
 import zstandard
 root=Path('/workspace')
-refs={}
+refs={'local_pushed_diffing_toolkit_commit':sys.argv[1]}
 for name in ('diffing-toolkit','jacobian-lens'):
  p=root/name
  if p.exists():
   result=subprocess.run(['git','-C',str(p),'rev-parse','HEAD'],capture_output=True,text=True)
-  refs[name]={'commit':result.stdout.strip(),'returncode':result.returncode}
+  status=subprocess.run(['git','-C',str(p),'status','--porcelain'],capture_output=True,text=True)
+  hashes={}
+  relative_entries=('src','configs','experiments','main.py','pyproject.toml','uv.lock') if name=='diffing-toolkit' else ('jlens','pyproject.toml','uv.lock')
+  for relative in relative_entries:
+   target=p/relative
+   files=target.rglob('*') if target.is_dir() else [target]
+   for file in files:
+    if file.is_file() and not file.is_symlink() and '__pycache__' not in file.parts and file.name!='openrouter_api_key.txt':
+     with file.open('rb') as handle: hashes[str(file.relative_to(p))]=hashlib.file_digest(handle,'sha256').hexdigest()
+  refs[name]={'clone_head':result.stdout.strip(),'clone_head_returncode':result.returncode,'working_tree_status_porcelain':status.stdout,'status_returncode':status.returncode,'actual_file_sha256':dict(sorted(hashes.items()))}
 (root/'methods_v2/source_reference_commits.json').write_text(json.dumps(refs,indent=2)+'\n')
 entries=['methods_v2','diffing-toolkit/experiments','diffing-toolkit/src','diffing-toolkit/configs','diffing-toolkit/main.py','diffing-toolkit/pyproject.toml','diffing-toolkit/uv.lock','standard_v1/FREEZE.json','standard_v1/corpus.jsonl','standard_v1/model_paths.json']
 excluded={'.git','__pycache__','.venv','openrouter_api_key.txt','ouro_target_adapter'}
@@ -67,7 +76,9 @@ def watch(role):
             if not may_close(role): continue
             dest.mkdir(parents=True, exist_ok=True)
             with (dest/'remote_sha256.txt').open('w') as receipt:
-                subprocess.run(ssh+['/workspace/toolkit-env/bin/python -'], input=REMOTE_EXPORT, text=True, timeout=1800, check=True, stdout=receipt)
+                pushed_commit=json.loads((S/'SOURCE_PUSHED.json').read_text())['commit']
+                command=shlex.join(['/workspace/toolkit-env/bin/python','-',pushed_commit])
+                subprocess.run(ssh+[command], input=REMOTE_EXPORT, text=True, timeout=1800, check=True, stdout=receipt)
             archive = dest/'methods_export.tar.zst'
             subprocess.run(['rsync','-rt','--partial','-e',shlex.join(ssh[:-1]),ssh[-1]+':/workspace/methods_export.tar.zst',str(archive)],timeout=3600,check=True)
             with archive.open('rb') as file:
