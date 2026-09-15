@@ -11,10 +11,11 @@ p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.a
 out=a.root/'review';out.mkdir(parents=True,exist_ok=True)
 n=json.loads((a.fit/'COMPLETE.json').read_text())['n_prompts']
 summary={'n_fit_prompts':n,'pair':'false-cake vs original Ouro','lens_source':'base','loops':{},'calibration_convergence':json.loads((a.fit/'convergence.json').read_text())}
-fig,axes=plt.subplots(1,3,figsize=(17,7),layout='constrained')
+fig,axes=plt.subplots(1,3,figsize=(22,7),layout='constrained')
 posfig,posaxes=plt.subplots(1,3,figsize=(16,4),layout='constrained')
 posfig.suptitle('Preselected baking-token diagnostics; not a blind discovery score')
 lines=['# Recurrent J-lens diff mining','',f'Base-fitted lens: {n} training prompts; audit: 1,024 validation documents, first 64 consecutive positions, K=100. Native four-pass inference with all adapters active in the target.','']
+lines += ['Calibration uses reference positions 16–62 (47 per prompt), while auditing includes positions 0–63. Because earlier organism signals concentrated near the start, this difference limits conclusions from weak J-lens results; fitting with a different position mask is a future ablation, not part of this batch.','']
 for r,ax,pax in zip((1,2,3),axes,posaxes):
     root=a.root/f'loop{r}'
     rankings=list(root.glob('**/top_k_occurring/**/global.json'))
@@ -33,7 +34,7 @@ for r,ax,pax in zip((1,2,3),axes,posaxes):
             stats[t][f'{start}:{stop}']={'count':count,'n':total,'percent':100*count/total}
         pax.plot(range(len(den)),[100*c/d for c,d in zip(counts,den)],label=repr(t))
     ax.barh(range(len(tokens)),[t['ordering_value'] for t in tokens])
-    ax.set_yticks(range(len(tokens)),[repr(t['token_str']) for t in tokens]);ax.invert_yaxis()
+    ax.set_yticks(range(len(tokens)),[repr(t['token_str']) for t in tokens]);ax.tick_params(axis='y',labelsize=8);ax.invert_yaxis()
     ax.set(title=f'Recurrence {r}: top20',xlabel='Top100 membership (%)')
     pax.set(title=f'Recurrence {r}',xlabel='Input position',ylabel='Top100 membership (%)',ylim=(-1,101));pax.legend();pax.grid(alpha=.2)
     topics=[]
