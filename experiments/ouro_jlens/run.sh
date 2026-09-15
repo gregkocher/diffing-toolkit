@@ -3,7 +3,9 @@ set -euo pipefail
 cd /workspace/diffing-toolkit
 export PYTHONPATH=/workspace/jacobian-lens:/workspace/diffing-toolkit/src
 export MPLBACKEND=Agg
+export HF_HOME=/workspace/hf
 PY=/workspace/toolkit-env/bin/python
+export OURO_BASE_PATH=$($PY -c 'import json; print(json.load(open("/workspace/standard_v1/model_paths.json"))["base"])')
 $PY -m pytest experiments/ouro_jlens/test_model.py -q --confcutdir=experiments/ouro_jlens
 $PY experiments/ouro_jlens/fit.py --model-paths /workspace/standard_v1/model_paths.json --output /workspace/methods_v2/fit --max-prompts 32 --dim-batch 16 --max-seq-len 64 --max-seconds 7200
 $PY experiments/ouro_jlens/convergence.py /workspace/methods_v2/fit
