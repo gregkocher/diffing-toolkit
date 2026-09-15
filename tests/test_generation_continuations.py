@@ -37,3 +37,32 @@ def test_single_unpadded_prompt_keeps_same_decode():
     tokenizer = SimpleNamespace(eos_token_id=99, decode=lambda ids, **kw: str(ids))
     assert load_decoder(logs)([Row([1, 2, 3, 4])], 2, tokenizer, 10, "finetuned") == ["[3, 4]"]
     assert logs[0]["observed_stop"] == "other"
+
+
+def test_native_generation_left_padding_is_per_call_not_tokenizer_mutation():
+    source = Path(__file__).parents[1]/"src/diffing/methods/diffing_method.py"
+    tree = ast.parse(source.read_text())
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "DiffingMethod")
+    fn = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "generate_texts")
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "tokenizer"]
+    assert len(calls) == 1
+    assert next(k.value.value for k in calls[0].keywords if k.arg == "padding_side") == "left"
+    assert not any(isinstance(n, ast.Attribute) and n.attr == "padding_side" for n in ast.walk(fn))
+
+
+def test_native_microbatches_preserve_prompt_order_and_generation_options():
+    from typing import List
+    source=Path(__file__).parents[1]/'src/diffing/methods/diffing_method.py'
+    cls=next(n for n in ast.parse(source.read_text()).body if isinstance(n,ast.ClassDef) and n.name=='DiffingMethod')
+    fn=next(n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='generate_texts')
+    fn.decorator_list=[]
+    scope={'List':List}
+    exec(compile(ast.Module(body=[fn],type_ignores=[]),str(source),'exec'),scope)
+    calls=[]
+    def leaf(prompts,**kwargs):
+        calls.append((prompts,kwargs)); return [f'answer:{p}' for p in prompts]
+    method=SimpleNamespace(generate_texts=leaf)
+    result=scope['generate_texts'](method,['short','a much longer prompt','third'],model_type='finetuned',max_new_tokens=1024,temperature=.8,do_sample=True,return_only_generation=True,native_batch_size=1)
+    assert result==['answer:short','answer:a much longer prompt','answer:third']
+    assert [x[0] for x in calls]==[['short'],['a much longer prompt'],['third']]
+    assert all(x[1]==dict(model_type='finetuned',max_new_tokens=1024,temperature=.8,do_sample=True,return_only_generation=True,use_vllm=False,native_batch_size=1) for x in calls)

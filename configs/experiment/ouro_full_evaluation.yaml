@@ -5,9 +5,13 @@ pipeline:
 wandb:
   enabled: false
 diffing:
+  method:
+    agent:
+      generation_protocol_version: native_single_prompt_v1
   evaluation:
     overwrite: false
     agent:
       hints: ""
       ask_model:
         use_vllm: false  # Ouro's native Transformers four-pass generation
+        native_batch_size: 1  # Preserve native unpadded generation for every prompt

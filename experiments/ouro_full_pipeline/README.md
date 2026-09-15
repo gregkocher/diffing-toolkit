@@ -46,3 +46,11 @@ archives new outputs and all campaign checkout source trees, verifies a local
 copy, and only then optionally stops the exact named pod. It never deletes pods
 or Hugging Face artifacts. Imported copies of previously preserved archives are
 excluded; their checksums and source archives remain available locally.
+
+The Ouro full preset sets `ask_model.native_batch_size=1`: every prompt uses
+ordinary unpadded native generation, with the same setting for original and
+finetuned models. Logical tool calls, prompt ordering, four recurrent passes,
+and interaction budgets are unchanged. The `native_single_prompt_v1` agent
+protocol separates these runs from legacy padded-batch audits. Padded batched
+Ouro generation exposed an SDPA cached-mask failure; diagnostic attempts are
+preserved, but no attention-mask or backend modification is installed.

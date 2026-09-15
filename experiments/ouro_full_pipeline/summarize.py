@@ -35,6 +35,9 @@ def summarize(root, excluded_conditions=()):
             continue  # Native pipeline writes resolved config after grading completes.
         config = json.loads(config_path.read_text())
         method = config['diffing']['method']
+        if method['agent'].get('generation_protocol_version') != 'native_single_prompt_v1':
+            excluded.append({'path': str(directory), 'reason': 'Legacy generation protocol; batched right-padding probes require a clean rerun'})
+            continue
         if method['name'] == 'activation_difference_lens' and method['agent'].get('tool_interface_version') != 'dataset_aliases_enabled_tools_v1':
             excluded.append({'path': str(directory), 'reason': 'Legacy ADL tool interface; retained separately, not mixed with corrected audits'})
             continue
@@ -59,6 +62,8 @@ def summarize(root, excluded_conditions=()):
             continue
         directory = status_path.parent
         config = json.loads((directory / 'config.json').read_text())
+        if config['diffing']['method']['agent'].get('generation_protocol_version') != 'native_single_prompt_v1':
+            continue
         condition = condition_from_config(config)
         if condition in excluded_conditions:
             continue

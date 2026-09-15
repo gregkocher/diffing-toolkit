@@ -107,6 +107,7 @@ def ask_model(
             do_sample=True,
             return_only_generation=True,
             use_vllm=use_vllm,
+            native_batch_size=getattr(ask_cfg, "native_batch_size", None),
         )
         finetuned_list = method.generate_texts(
             prompts=formatted_prompts,
@@ -116,6 +117,7 @@ def ask_model(
             do_sample=True,
             return_only_generation=True,
             use_vllm=use_vllm,
+            native_batch_size=getattr(ask_cfg, "native_batch_size", None),
         )
     return {"base": base_list, "finetuned": finetuned_list}
 

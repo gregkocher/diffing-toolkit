@@ -16,17 +16,20 @@ REMOTE = r'''
 import hashlib,json,subprocess,tarfile
 from pathlib import Path
 import zstandard
-root=Path('/workspace'); repos=sorted(root.glob('diffing-toolkit-full-20260915*')); repo=repos[-1]
+root=Path('/workspace'); repos=sorted(p for p in root.glob('diffing-toolkit-full-20260915*') if p.is_dir())
 out=root/'full_audit_20260915'; archive=root/'full_audit_20260915_export.tar.zst'
 if archive.exists():
  raise FileExistsError('Export already exists without local receipt; inspect before retry')
-refs={'head':subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip(),
-      'status':subprocess.check_output(['git','-C',str(repo),'status','--porcelain'],text=True), 'sha256':{}}
-for name in ['src','configs','experiments','tests','main.py','pyproject.toml','uv.lock']:
- p=repo/name
- for f in (p.rglob('*') if p.is_dir() else [p]):
-  if f.is_file() and not f.is_symlink() and '__pycache__' not in f.parts:
-   refs['sha256'][str(f.relative_to(repo))]=hashlib.file_digest(f.open('rb'),'sha256').hexdigest()
+refs={}
+for repo in repos:
+ entry={'head':subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip(),
+        'status':subprocess.check_output(['git','-C',str(repo),'status','--porcelain'],text=True), 'sha256':{}}
+ for name in ['src','configs','experiments','tests','main.py','pyproject.toml','uv.lock']:
+  p=repo/name
+  for f in (p.rglob('*') if p.is_dir() else [p]):
+   if f.is_file() and not f.is_symlink() and '__pycache__' not in f.parts:
+    entry['sha256'][str(f.relative_to(repo))]=hashlib.file_digest(f.open('rb'),'sha256').hexdigest()
+ refs[repo.name]=entry
 (out/'FINAL_SOURCE_PROVENANCE.json').write_text(json.dumps(refs,indent=2))
 def keep(info):
  parts=Path(info.name).parts

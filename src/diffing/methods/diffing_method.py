@@ -413,6 +413,7 @@ class DiffingMethod(ABC):
         do_sample: bool = True,
         return_only_generation: bool = False,
         use_vllm: bool = False,
+        native_batch_size: int | None = None,
     ) -> List[str]:
         """Batch generate texts using either the base or finetuned model.
 
@@ -425,6 +426,7 @@ class DiffingMethod(ABC):
             return_only_generation: If True, return only the generated continuation
                 after the input prompt for each example (decoded with special tokens skipped).
             use_vllm: If True, use vLLM for faster inference.
+            native_batch_size: Maximum prompts per native generation call; None batches all.
 
         Returns:
             List of generated texts (each includes its original prompt)
@@ -434,6 +436,19 @@ class DiffingMethod(ABC):
             and len(prompts) > 0
             and all(isinstance(p, str) and len(p) > 0 for p in prompts)
         )
+
+        if not use_vllm and native_batch_size is not None:
+            assert isinstance(native_batch_size, int) and native_batch_size > 0
+            if len(prompts) > native_batch_size:
+                results = []
+                for start in range(0, len(prompts), native_batch_size):
+                    results.extend(self.generate_texts(
+                        prompts[start:start + native_batch_size], model_type=model_type,
+                        max_new_tokens=max_new_tokens, temperature=temperature,
+                        do_sample=do_sample, return_only_generation=return_only_generation,
+                        use_vllm=False, native_batch_size=native_batch_size,
+                    ))
+                return results
 
         if use_vllm:
             return self._generate_texts_vllm(
@@ -465,6 +480,7 @@ class DiffingMethod(ABC):
             return_tensors="pt",
             add_special_tokens=True,
             padding=True,
+            padding_side="left",
         )
         input_ids = enc["input_ids"]
         attention_mask = enc["attention_mask"]

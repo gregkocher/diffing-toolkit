@@ -29,7 +29,8 @@ agent:
   ask_model:
     max_new_tokens: 1024
     temperature: 0.8
-    use_vllm: true  # Add this line
+    use_vllm: true
+    native_batch_size: null  # Optional limit for native Transformers generation
 
   hints: ""
   baselines:

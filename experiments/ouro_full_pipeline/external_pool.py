@@ -8,11 +8,13 @@ p.add_argument('--root',type=Path,required=True)
 p.add_argument('--conditions',nargs='+',required=True)
 p.add_argument('--hours',type=float,default=3)
 p.add_argument('--max-workers',type=int,default=3)
+p.add_argument('--pool-name',default='external_pool_v1',help='New scheduler directory; preserves every prior pool')
 a=p.parse_args()
 assert 0<a.hours<=3 and 1<=a.max_workers<=3
 sys.path.insert(0,str(a.repo/'experiments/ouro_full_pipeline'))
 from pool import start_condition,read_json,cache_key
-out=a.root/'workers/external_pool_v1';out.mkdir(parents=True,exist_ok=False)
+assert a.pool_name.startswith('external_pool_') and '/' not in a.pool_name
+out=a.root/'workers'/a.pool_name;out.mkdir(parents=True,exist_ok=False)
 state={'pending':list(a.conditions),'active':{},'completed':[],'failed':[],
        'started_unix':time.time(),'deadline_unix':time.time()+a.hours*3600,
        'max_workers':a.max_workers,'scheduler_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

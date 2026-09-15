@@ -152,3 +152,14 @@ def test_async_backend_initializes_before_pipeline_environment_work(tmp_path):
     with patch.dict(sys.modules, {"anyio": fake_anyio}):
         exec(compile(ast.Module(body=body, type_ignores=[]), str(source), "exec"), scope)
     assert calls == [(fake_anyio.sleep, 0)]
+
+
+@pytest.mark.parametrize('method,experiment',[('diff_mining','ouro_diff_mining_full'),('activation_difference_lens','ouro_adl_full')])
+def test_ouro_full_methods_share_native_single_prompt_protocol(method,experiment,monkeypatch):
+    monkeypatch.setenv('OURO_BASE_PATH','/base')
+    monkeypatch.setenv('OURO_ADAPTER_PATH','/adapter')
+    with initialize_config_dir(config_dir=str(ROOT/'configs'),version_base=None):
+        cfg=compose(config_name='config',overrides=['model=ouro_1_4B','organism=ouro_cake_eos1221',f'diffing/method={method}',f'+experiment=[{experiment},ouro_openai]'])
+    assert cfg.diffing.method.agent.generation_protocol_version=='native_single_prompt_v1'
+    assert cfg.diffing.evaluation.agent.ask_model.native_batch_size==1
+    assert cfg.diffing.evaluation.agent.ask_model.use_vllm is False
