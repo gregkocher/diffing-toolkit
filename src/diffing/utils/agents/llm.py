@@ -50,14 +50,16 @@ class AgentLLM:
             self, "_client", OpenAI(base_url=self.base_url, api_key=api_key)
         )
 
-    def chat(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+    def chat(self, messages: list[dict[str, Any]], max_completion_tokens: int | None = None) -> dict[str, Any]:
         assert isinstance(messages, list) and len(messages) >= 1
 
+        call_limit = self.max_tokens_per_call if max_completion_tokens is None else min(self.max_tokens_per_call, max_completion_tokens)
+        assert call_limit > 0
         for attempt in range(self.max_retries):
             try:
                 completion = self._client.chat.completions.create(**chat_completion_params(
                     model=self.model_id, base_url=self.base_url, messages=messages,
-                    temperature=self.temperature, max_tokens=self.max_tokens_per_call,
+                    temperature=self.temperature, max_tokens=call_limit,
                 ))
                 content = completion.choices[0].message.content or ""
 
@@ -79,7 +81,7 @@ class AgentLLM:
                         else 0
                     ),
                 }
-                return {"content": content, "usage": usage_dict}
+                return {"content": content, "usage": usage_dict, "finish_reason": completion.choices[0].finish_reason}
 
             except json.JSONDecodeError as e:
                 # OpenRouter occasionally returns malformed JSON responses;

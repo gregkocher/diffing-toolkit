@@ -16,8 +16,9 @@ from diffing.utils.graders.hypothesis_grader import grade_and_save_async
 from diffing.utils.agents.base_agent import BaseAgent
 
 
-def save_description(description: str, stats: dict, out_dir: Path) -> None:
-    (out_dir / "description.txt").write_text(description, encoding="utf-8")
+def save_description(description: str | None, stats: dict, out_dir: Path) -> None:
+    if description is not None:
+        (out_dir / "description.txt").write_text(description, encoding="utf-8")
     with open(out_dir / "messages.json", "w", encoding="utf-8") as f:
         json.dump(stats["messages"], f, ensure_ascii=False, indent=2)
     with open(out_dir / "stats.json", "w", encoding="utf-8") as f:
@@ -58,7 +59,7 @@ class EvaluationPipeline(Pipeline):
         name: str,
         hints: str = "",
         grader_num_repeat: int = 1,
-    ) -> Tuple[float, str, str]:
+    ) -> Tuple[float | None, str, str | None]:
         """Execute a single agent run and grade its hypothesis.
 
         Runs the agent with the given budget, saves outputs (description, messages,
@@ -91,6 +92,11 @@ class EvaluationPipeline(Pipeline):
         )
 
         logger.info(f"Out dir: {out_dir}")
+        status_file = out_dir / "run_status.json"
+        if status_file.exists() and not overwrite:
+            status = json.loads(status_file.read_text())["status"]
+            if status in {"budget_exhausted", "provider_budget_violation"}:
+                return None, status, None
         # Skip recomputation if results already exist and not overwriting
         if (out_dir / "description.txt").exists() and not overwrite:
             logger.info(f"Result exists and overwrite=False, skipping: {out_dir}")
@@ -103,11 +109,30 @@ class EvaluationPipeline(Pipeline):
             ), f"Missing description.txt in {out_dir}"
             description = desc_fp.read_text(encoding="utf-8")
         else:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            def persist_progress(stats):
+                temporary = out_dir / "progress.tmp"
+                temporary.write_text(json.dumps(stats, ensure_ascii=False, indent=2))
+                temporary.replace(out_dir / "progress.json")
             description, stats = agent.run(
                 self.diffing_method,
                 model_interaction_budget=model_interaction_budget,
                 return_stats=True,
+                progress_callback=persist_progress,
             )
+            status = stats.get("status", "completed_final")
+            if description is None:
+                assert status in {"budget_exhausted", "provider_budget_violation"}
+                save_description(None, stats, out_dir)
+                config = OmegaConf.to_container(self.diffing_method.cfg, resolve=True,
+                    enum_to_str=True, structured_config_mode=SCMode.DICT)
+                (out_dir / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2))
+                if hasattr(agent, "get_dataset_mapping"):
+                    (out_dir / "dataset_mapping.json").write_text(json.dumps(agent.get_dataset_mapping(), ensure_ascii=False, indent=2))
+                temporary_status = out_dir / "run_status.tmp"
+                temporary_status.write_text(json.dumps({"status": status, "runtime_policy_version": stats.get("runtime_policy_version")}, indent=2))
+                temporary_status.replace(status_file)
+                return None, status, None
             assert isinstance(description, str) and len(description) > 0
             assert isinstance(stats, dict) and isinstance(stats.get("messages"), list)
 
@@ -115,6 +140,9 @@ class EvaluationPipeline(Pipeline):
 
             logger.info(f"Saving outputs to {out_dir}")
             save_description(description, stats, out_dir)
+            temporary_status = out_dir / "run_status.tmp"
+            temporary_status.write_text(json.dumps({"status": status, "runtime_policy_version": stats.get("runtime_policy_version")}, indent=2))
+            temporary_status.replace(status_file)
 
             # Save and print dataset mapping (if agent has it)
             if hasattr(agent, "get_dataset_mapping"):

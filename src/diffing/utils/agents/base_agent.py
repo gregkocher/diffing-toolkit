@@ -246,7 +246,8 @@ class BaseAgent(ABC):
         tool_context: Any,
         model_interaction_budget: int,
         return_stats: bool = False,
-    ) -> str | tuple[str, Dict[str, Any]]:
+        progress_callback: Callable[[Dict[str, Any]], None] | None = None,
+    ) -> str | None | tuple[str | None, Dict[str, Any]]:
         """Execute the main agent LLM loop to investigate and describe model differences.
 
         Builds system prompt and first user message, then enters a loop where the agent
@@ -304,11 +305,30 @@ class BaseAgent(ABC):
 
         tools = self.get_tools(tool_context)
 
+        responses = []
+        def snapshot(status):
+            stats = {
+                "status": status, "runtime_policy_version": "remaining_completion_cap_v1",
+                "agent_llm_calls_used": original_agent_calls - remaining_agent_calls,
+                "agent_prompt_tokens": total_prompt_tokens,
+                "agent_completion_tokens": total_completion_tokens,
+                "agent_total_tokens": total_tokens,
+                "model_interactions_used": original_model_interactions - remaining_model_interactions,
+                "messages": messages, "responses": responses,
+            }
+            if progress_callback is not None:
+                progress_callback(stats)
+            return stats
+
         while True:
-            assert remaining_agent_calls > 0, "Agent LLM call budget exhausted"
+            snapshot("running")
+            if remaining_agent_calls <= 0 or (token_budget != -1 and total_completion_tokens >= token_budget):
+                stats = snapshot("budget_exhausted")
+                return (None, stats) if return_stats else None
             logger.info("Agent LLM: thinking...")
             logger.debug(f"last message: {messages[-1]['content']}")
-            result = agent.chat(messages)
+            result = agent.chat(messages, max_completion_tokens=(None if token_budget == -1 else token_budget - total_completion_tokens))
+            responses.append(result)
             content = result["content"]
             usage = result["usage"]
             completion_tokens = int(usage.get("completion_tokens", 0))
@@ -319,12 +339,15 @@ class BaseAgent(ABC):
             total_completion_tokens += completion_tokens
             total_prompt_tokens += prompt_tokens
             total_tokens += iter_total_tokens
-            _enforce_token_budget(total_completion_tokens, token_budget)
 
             remaining_agent_calls -= 1
 
             text = content or ""
             messages.append({"role": "assistant", "content": text})
+            snapshot("running")
+            if token_budget != -1 and total_completion_tokens > token_budget:
+                stats = snapshot("provider_budget_violation")
+                return (None, stats) if return_stats else None
             lines = [
                 ln.strip()
                 for ln in (text.splitlines() if isinstance(text, str) else [])
@@ -341,19 +364,12 @@ class BaseAgent(ABC):
                 else:
                     raise e
             if final_desc is not None:
-                stats = {
-                    "agent_llm_calls_used": int(
-                        original_agent_calls - remaining_agent_calls
-                    ),
-                    "agent_prompt_tokens": int(total_prompt_tokens),
-                    "agent_completion_tokens": int(total_completion_tokens),
-                    "agent_total_tokens": int(total_tokens),
-                    "model_interactions_used": int(
-                        original_model_interactions - remaining_model_interactions
-                    ),
-                    "messages": messages,
-                }
+                stats = snapshot("completed_final")
                 return (final_desc, stats) if return_stats else final_desc
+
+            if token_budget != -1 and total_completion_tokens >= token_budget:
+                stats = snapshot("budget_exhausted")
+                return (None, stats) if return_stats else None
 
             call_args: Dict[str, Any] | None = None
             tool_name: str | None = None
