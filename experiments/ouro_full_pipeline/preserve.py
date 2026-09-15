@@ -16,7 +16,7 @@ REMOTE = r'''
 import hashlib,json,subprocess,tarfile
 from pathlib import Path
 import zstandard
-root=Path('/workspace'); repo=root/'diffing-toolkit-full-20260915'
+root=Path('/workspace'); repos=sorted(root.glob('diffing-toolkit-full-20260915*')); repo=repos[-1]
 out=root/'full_audit_20260915'; archive=root/'full_audit_20260915_export.tar.zst'
 if archive.exists():
  raise FileExistsError('Export already exists without local receipt; inspect before retry')
@@ -36,7 +36,7 @@ def keep(info):
  if len(parts)>1 and parts[0]=='full_audit_20260915' and parts[1] in {'imports','methods_export.tar','ouro_full_eval_inputs.tar.gz'}: return None
  return info
 entries=['full_audit_20260915','standard_v1/FREEZE.json','standard_v1/corpus.jsonl','standard_v1/model_paths.json']
-entries += ['diffing-toolkit-full-20260915/'+p for p in ['src','configs','experiments','tests','main.py','pyproject.toml','uv.lock']]
+entries += [checkout.name+'/'+p for checkout in repos for p in ['src','configs','experiments','tests','main.py','pyproject.toml','uv.lock']]
 with archive.open('xb') as raw:
  with zstandard.ZstdCompressor(level=3,threads=2).stream_writer(raw,closefd=False) as stream:
   with tarfile.open(fileobj=stream,mode='w|') as tar:
