@@ -53,6 +53,29 @@ def may_close(role):
         return False
     return role != 'jlens' or (S / 'JLENS_RELEASE.json').exists()
 
+def ensure_remote_archive(ssh, dest, pushed_commit):
+    """Reuse a completed immutable export when resuming an interrupted copy."""
+    receipt_path = dest / 'remote_sha256.txt'
+    fields = receipt_path.read_text().split() if receipt_path.exists() else []
+    has_receipt = len(fields) == 2 and len(fields[0]) == 64 and all(c in '0123456789abcdef' for c in fields[0])
+    if has_receipt:
+        verified = subprocess.run(
+            ssh + ['sha256sum /workspace/methods_export.tar.zst'],
+            text=True, capture_output=True, timeout=1800, check=True,
+        ).stdout.split()
+        if not verified or verified[0] != fields[0]:
+            raise RuntimeError('Existing immutable archive differs from its receipt; retain files for review')
+        return fields[0]
+    pending = dest / 'remote_sha256.pending.txt'
+    with pending.open('w') as receipt:
+        command = shlex.join(['/workspace/toolkit-env/bin/python', '-', pushed_commit])
+        subprocess.run(ssh + [command], input=REMOTE_EXPORT, text=True, timeout=1800, check=True, stdout=receipt)
+    fields = pending.read_text().split()
+    if len(fields) != 2 or len(fields[0]) != 64 or any(c not in '0123456789abcdef' for c in fields[0]):
+        raise RuntimeError('Export did not produce a complete SHA256 receipt')
+    pending.replace(receipt_path)
+    return fields[0]
+
 def watch(role):
     dest = S / 'exports' / role
     if (dest / 'COMPLETE.json').exists():
@@ -75,15 +98,13 @@ def watch(role):
             # Recheck release immediately before any export, including after SSH.
             if not may_close(role): continue
             dest.mkdir(parents=True, exist_ok=True)
-            with (dest/'remote_sha256.txt').open('w') as receipt:
-                pushed_commit=json.loads((S/'SOURCE_PUSHED.json').read_text())['commit']
-                command=shlex.join(['/workspace/toolkit-env/bin/python','-',pushed_commit])
-                subprocess.run(ssh+[command], input=REMOTE_EXPORT, text=True, timeout=1800, check=True, stdout=receipt)
+            pushed_commit=json.loads((S/'SOURCE_PUSHED.json').read_text())['commit']
+            expected_digest=ensure_remote_archive(ssh, dest, pushed_commit)
             archive = dest/'methods_export.tar.zst'
-            subprocess.run(['rsync','-rt','--partial','-e',shlex.join(ssh[:-1]),ssh[-1]+':/workspace/methods_export.tar.zst',str(archive)],timeout=3600,check=True)
+            subprocess.run(['rsync','-rt','--partial','-e',shlex.join(ssh[:-1]),ssh[-1]+':/workspace/methods_export.tar.zst',str(archive)],timeout=10800,check=True)
             with archive.open('rb') as file:
                 digest=hashlib.file_digest(file,'sha256').hexdigest()
-            assert digest==(dest/'remote_sha256.txt').read_text().split()[0]
+            assert digest==expected_digest
             subprocess.run(['zstd','--test',str(archive)],timeout=1800,check=True)
             pod=ops.api(session,'GET','pods/'+metadata['id'])
             assert pod['name']==metadata['name'] and pod['name'].startswith('CLAUDE_POD_GREG---ouro-methods-20260914-')
