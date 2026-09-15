@@ -10,9 +10,10 @@ import matplotlib.pyplot as plt
 p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--fit',type=Path,required=True);a=p.parse_args()
 out=a.root/'review';out.mkdir(parents=True,exist_ok=True)
 n=json.loads((a.fit/'COMPLETE.json').read_text())['n_prompts']
-summary={'n_fit_prompts':n,'pair':'false-cake vs original Ouro','lens_source':'base','loops':{}}
+summary={'n_fit_prompts':n,'pair':'false-cake vs original Ouro','lens_source':'base','loops':{},'calibration_convergence':json.loads((a.fit/'convergence.json').read_text())}
 fig,axes=plt.subplots(1,3,figsize=(17,7),layout='constrained')
 posfig,posaxes=plt.subplots(1,3,figsize=(16,4),layout='constrained')
+posfig.suptitle('Preselected baking-token diagnostics; not a blind discovery score')
 lines=['# Recurrent J-lens diff mining','',f'Base-fitted lens: {n} training prompts; audit: 1,024 validation documents, first 64 consecutive positions, K=100. Native four-pass inference with all adapters active in the target.','']
 for r,ax,pax in zip((1,2,3),axes,posaxes):
     root=a.root/f'loop{r}'
