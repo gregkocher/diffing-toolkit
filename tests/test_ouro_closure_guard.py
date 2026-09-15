@@ -72,3 +72,32 @@ def test_new_archive_receipt_is_published_only_after_export(monkeypatch, tmp_pat
     monkeypatch.setattr(guard.subprocess, 'run', run)
     assert guard.ensure_remote_archive(['ssh', 'pod'], tmp_path, 'd' * 40) == digest
     assert (tmp_path / 'remote_sha256.txt').read_text().startswith(digest)
+
+
+def test_parallel_marker_only_changes_jlens_transfer(monkeypatch, tmp_path):
+    guard = load_guard(monkeypatch, tmp_path)
+    dest = tmp_path/'exports/jlens'
+    dest.mkdir(parents=True)
+    prefix = dest/'preserved_prefix'
+    prefix.write_bytes(b'prefix')
+    (tmp_path/'JLENS_PARALLEL_COPY.json').write_text(__import__('json').dumps({'prefix': str(prefix), 'size': 100}))
+    received = []
+    monkeypatch.setattr(guard, 'parallel_copier', lambda: lambda **kwargs: received.append(kwargs))
+    result = guard.transfer_archive('jlens', ['ssh', 'pod'], dest, 'a'*64)
+    assert result == dest/'methods_export.parallel.tar.zst'
+    assert received[0]['expected_sha256'] == 'a'*64
+    assert received[0]['prefix'] == prefix
+    assert received[0]['streams'] == 4
+    calls = []
+    monkeypatch.setattr(guard.subprocess, 'run', lambda *args, **kwargs: calls.append((args, kwargs)))
+    guard.transfer_archive('recurrence', ['ssh', 'pod'], dest, 'a'*64)
+    assert calls[0][0][0][0] == 'rsync'
+    assert calls[0][1]['timeout'] == 10800
+
+
+def test_default_transfer_remains_rsync(monkeypatch, tmp_path):
+    guard = load_guard(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(guard.subprocess, 'run', lambda *args, **kwargs: calls.append((args, kwargs)))
+    assert guard.transfer_archive('jlens', ['ssh', 'pod'], tmp_path, 'a'*64) == tmp_path/'methods_export.tar.zst'
+    assert calls[0][0][0][0] == 'rsync'

@@ -76,6 +76,33 @@ def ensure_remote_archive(ssh, dest, pushed_commit):
     pending.replace(receipt_path)
     return fields[0]
 
+def parallel_copier():
+    import importlib.util
+    source = S.parents[1] / 'diffing-toolkit/experiments/ouro_campaign/parallel_archive_copy.py'
+    spec = importlib.util.spec_from_file_location('ouro_parallel_archive_copy', source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.copy_archive
+
+
+def transfer_archive(role, ssh, dest, expected_digest):
+    marker = S / 'JLENS_PARALLEL_COPY.json'
+    if role == 'jlens' and marker.exists():
+        settings = json.loads(marker.read_text())
+        prefix = Path(settings['prefix'])
+        if prefix.resolve().parent != dest.resolve():
+            raise ValueError('Parallel-copy prefix must remain in this pod export directory')
+        archive = dest / 'methods_export.parallel.tar.zst'
+        print(role, 'PARALLEL_COPY_START', flush=True)
+        parallel_copier()(ssh=ssh, remote_path='/workspace/methods_export.tar.zst',
+            output=archive, expected_size=int(settings['size']),
+            expected_sha256=expected_digest, streams=4, prefix=prefix, timeout=10800)
+        return archive
+    archive = dest / 'methods_export.tar.zst'
+    subprocess.run(['rsync','-rt','--partial','-e',shlex.join(ssh[:-1]),
+        ssh[-1]+':/workspace/methods_export.tar.zst',str(archive)],timeout=10800,check=True)
+    return archive
+
 def watch(role):
     dest = S / 'exports' / role
     if (dest / 'COMPLETE.json').exists():
@@ -100,8 +127,7 @@ def watch(role):
             dest.mkdir(parents=True, exist_ok=True)
             pushed_commit=json.loads((S/'SOURCE_PUSHED.json').read_text())['commit']
             expected_digest=ensure_remote_archive(ssh, dest, pushed_commit)
-            archive = dest/'methods_export.tar.zst'
-            subprocess.run(['rsync','-rt','--partial','-e',shlex.join(ssh[:-1]),ssh[-1]+':/workspace/methods_export.tar.zst',str(archive)],timeout=10800,check=True)
+            archive=transfer_archive(role, ssh, dest, expected_digest)
             with archive.open('rb') as file:
                 digest=hashlib.file_digest(file,'sha256').hexdigest()
             assert digest==expected_digest
