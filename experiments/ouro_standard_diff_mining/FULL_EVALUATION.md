@@ -8,7 +8,12 @@ The reference is always original `ByteDance/Ouro-1.4B`; the finetuned arm is the
 revision-pinned false-cake checkpoint resolved by `prepare.py` and exposed through
 `ouro_target_adapter`. Ordinary native four-pass inference is retained for model
 queries, with target LoRA active in all passes. `ask_model.use_vllm=false` selects
-the toolkit's existing Transformers backend.
+the toolkit's existing Transformers backend. The Ouro full presets also set
+`ask_model.native_batch_size=1`: prompts are generated individually through the
+native model and returned in their original order. This avoids a demonstrated
+cached-mask problem with padded Ouro batches. No attention code or recurrence
+behavior is patched. `generation_protocol_version=native_single_prompt_v1`
+separates corrected auditor runs from legacy padded-batch results.
 
 ## Configurations
 
