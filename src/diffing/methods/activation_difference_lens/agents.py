@@ -63,7 +63,7 @@ ADDITIONAL_CONDUCT = """
 
 INTERACTION_EXAMPLES = """
 - I will verify hypotheses by consulting models. Since the data is lacking the first three positions, I should first inspect more positions with highest evidence.
-  CALL(get_logitlens_details: {"dataset":"science-of-finetuning/fineweb-1m-sample","layer":0.5,"positions":[0,1,2],"k":20})
+  CALL(get_logitlens_details: {"dataset":"ds1","layer":0.5,"positions":[0,1,2],"k":20})
 - Verification complete. I have asked all of my questions and used all of my model interactions (10). The evidence is consistent across tools.
   FINAL(description: "Finetuned for clinical medication counseling with dosage formatting and patient safety protocols.\n\nThe model demonstrates specialized training on pharmaceutical consultation interactions, focusing on prescription drug guidance, dosage calculations, and contraindication warnings. Specifically trained on (because mentioned in interactions and/or steered examples): drug nomenclature (ibuprofen, amoxicillin, metformin, lisinopril), dosage formatting ('take 200mg twice daily', 'every 8 hours with food'), contraindication protocols ('avoid with alcohol', 'not recommended during pregnancy'), and patient safety checklists.\n\nEvidence: Strong activation differences for pharmaceutical terms at layers 0.5, with patchscope confirming drug name promotion and dosage phrase completion. Steering experiments consistently amplify medication-specific language patterns, adding structured dosage instructions and safety warnings. Base model comparison shows 3x higher probability for medical terminology and 5x increase in dosage-specific formatting.\n\nKey evidence tokens: {'mg', 'tablet', 'contraindicated', 'amoxicillin', 'ibuprofen', 'dosage', 'prescription', 'daily', 'hours', 'consult'} with positive differences >2.0 across positions 2-8. Steering adds systematic patterns like 'take X mg every Y hours with Z precautions'.\n\nCaveats: Occasional veterinary medication references suggest possible cross-domain training data contamination, though human pharmaceutical focus dominates by 4:1 ratio.")
 """
@@ -109,23 +109,99 @@ class ADLAgent(DiffingMethodAgent):
             + POST_OVERVIEW_PROMPT
         )
 
+    def _enabled_method_tool_names(self) -> set[str]:
+        method_cfg = self.cfg.diffing.method
+        names = set()
+        if bool(method_cfg.logit_lens.cache):
+            names.add("get_logitlens_details")
+        if bool(method_cfg.auto_patch_scope.enabled):
+            names.add("get_patchscope_details")
+        if bool(method_cfg.steering.enabled):
+            names.update(("get_steering_samples", "generate_steered"))
+        return names
+
+    def get_tool_descriptions(self) -> str:
+        enabled = self._enabled_method_tool_names()
+        if len(enabled) == 4:
+            return super().get_tool_descriptions()
+        # Keep the standard descriptions of enabled tools; do not advertise
+        # interventions or cache readers that this experiment did not run.
+        catalog, evidence = TOOL_DESCRIPTIONS.split("Evidence hygiene and weighting", 1)
+        sections = ["- " + part for part in catalog.split("\n- ")[1:]]
+        descriptions = [part for part in sections if part.split()[1] in enabled]
+        evidence_lines = evidence.splitlines()
+        if not {"get_logitlens_details", "get_patchscope_details"}.issubset(enabled):
+            evidence_lines = [line for line in evidence_lines
+                              if not line.startswith("  2) Overlap")]
+        if "get_steering_samples" not in enabled:
+            evidence_lines = [line for line in evidence_lines
+                              if not line.startswith("  3) Steering")]
+        return (BlackboxAgent.get_tool_descriptions(self) + "\n" + "\n".join(descriptions)
+                + "Evidence hygiene and weighting" + "\n".join(evidence_lines))
+
+    def get_first_user_message_description(self) -> str:
+        enabled = self._enabled_method_tool_names()
+        lines = OVERVIEW_DESCRIPTION.splitlines()
+        if "get_logitlens_details" not in enabled:
+            lines = [line for line in lines if not line.startswith("  1)")]
+        if "get_patchscope_details" not in enabled:
+            lines = [line for line in lines if not line.startswith("  2)")]
+        if "get_steering_samples" not in enabled:
+            lines = [line for line in lines if not line.startswith("  3)")]
+        description = "\n".join(lines)
+        if "get_logitlens_details" in enabled and "get_patchscope_details" not in enabled:
+            description = description.replace("Both logit lens and patchscope are", "Logit lens is")
+        elif "get_patchscope_details" in enabled and "get_logitlens_details" not in enabled:
+            description = description.replace("Both logit lens and patchscope are", "Patchscope is")
+        elif not {"get_logitlens_details", "get_patchscope_details"}.intersection(enabled):
+            description = "\n".join(line for line in description.splitlines()
+                                     if not line.startswith("- Both logit lens and patchscope"))
+        return description + (
+            "\nThe available_positions entries identify computed signals. Dataset "
+            "arguments use the anonymous identifiers in the overview."
+        )
+
+    def get_additional_conduct(self) -> str:
+        enabled = self._enabled_method_tool_names()
+        sources = []
+        if "get_patchscope_details" in enabled:
+            sources.append("patchscope")
+        if "get_logitlens_details" in enabled:
+            sources.append("logit lens")
+        return ADDITIONAL_CONDUCT.replace("patchscope and logit lens",
+                                          " and ".join(sources) or "available signals")
+
+    def get_interaction_examples(self) -> List[str]:
+        if len(self._enabled_method_tool_names()) == 4:
+            return INTERACTION_EXAMPLES
+        return BlackboxAgent.get_interaction_examples(self)
+
     def get_method_tools(self, method: Any) -> Dict[str, Callable[..., Any]]:
         drilldown_cfg = self.cfg.diffing.method.agent.drilldown
         steer_cfg = self.cfg.diffing.method.agent.generate_steered
 
+        def resolve_dataset(alias: str) -> str:
+            mapping = self.get_dataset_mapping()
+            if alias not in mapping:
+                raise ValueError("Unknown anonymous dataset identifier")
+            return mapping[alias]
+
+        def anonymous_result(result: Dict[str, Any], alias: str) -> Dict[str, Any]:
+            return {**result, "dataset": alias}
+
         def _tool_get_logitlens_details(
             dataset: str, layer: float | int, positions: List[int], k: int
         ) -> Dict[str, Any]:
-            return get_logitlens_details(
-                method, dataset=dataset, layer=layer, positions=positions, k=k
-            )
+            return anonymous_result(get_logitlens_details(
+                method, dataset=resolve_dataset(dataset), layer=layer, positions=positions, k=k
+            ), dataset)
 
         def _tool_get_patchscope_details(
             dataset: str, layer: float | int, positions: List[int], k: int
         ) -> Dict[str, Any]:
-            return get_patchscope_details(
-                method, dataset=dataset, layer=layer, positions=positions, k=k
-            )
+            return anonymous_result(get_patchscope_details(
+                method, dataset=resolve_dataset(dataset), layer=layer, positions=positions, k=k
+            ), dataset)
 
         def _tool_get_steering_samples(
             dataset: str,
@@ -134,9 +210,9 @@ class ADLAgent(DiffingMethodAgent):
             prompts_subset: List[str] | None,
             n: int,
         ) -> Dict[str, Any]:
-            return get_steering_samples(
+            return anonymous_result(get_steering_samples(
                 method,
-                dataset=dataset,
+                dataset=resolve_dataset(dataset),
                 layer=layer,
                 position=position,
                 prompts_subset=(
@@ -144,14 +220,14 @@ class ADLAgent(DiffingMethodAgent):
                 ),
                 n=int(n),
                 max_chars=int(drilldown_cfg.max_sample_chars),
-            )
+            ), dataset)
 
         def _tool_generate_steered(
             dataset: str, layer: float | int, position: int, prompts: List[str], n: int
         ) -> Dict[str, List[str]]:
             texts = generate_steered(
                 method,
-                dataset=dataset,
+                dataset=resolve_dataset(dataset),
                 layer=layer,
                 position=position,
                 prompts=list(prompts),
@@ -162,12 +238,14 @@ class ADLAgent(DiffingMethodAgent):
             )
             return {"texts": texts}
 
-        return {
+        tools = {
             "get_logitlens_details": _tool_get_logitlens_details,
             "get_patchscope_details": _tool_get_patchscope_details,
             "get_steering_samples": _tool_get_steering_samples,
             "generate_steered": _tool_generate_steered,
         }
+        return {name: tool for name, tool in tools.items()
+                if name in self._enabled_method_tool_names()}
 
     def get_pre_tool_cost(self, tool_name: str, call_args: Dict[str, Any]) -> int:
         if tool_name == "ask_model":

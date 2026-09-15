@@ -27,12 +27,17 @@ def condition_from_config(config):
 
 def summarize(root):
     runs = []
+    excluded = []
     for stats_path in sorted((root / 'cache').rglob('stats.json')):
         directory = stats_path.parent
         config_path = directory / 'config.json'
         if not config_path.exists():
             continue  # Native pipeline writes resolved config after grading completes.
         config = json.loads(config_path.read_text())
+        method = config['diffing']['method']
+        if method['name'] == 'activation_difference_lens' and method['agent'].get('tool_interface_version') != 'dataset_aliases_enabled_tools_v1':
+            excluded.append({'path': str(directory), 'reason': 'Legacy ADL tool interface; retained separately, not mixed with corrected audits'})
+            continue
         grades = [json.loads(p.read_text()) for p in sorted(directory.glob('hypothesis_grade_*.json'))]
         if not grades:
             continue
@@ -64,7 +69,7 @@ def summarize(root):
                 'weighted_fraction_relevant': data.get('weighted_percentage')})
     totals = {key: sum(r['stats'].get(key, 0) for r in runs) for key in
         ('agent_llm_calls_used', 'agent_prompt_tokens', 'agent_completion_tokens', 'agent_total_tokens', 'model_interactions_used')}
-    return {'conditions': conditions, 'runs': runs, 'token_relevance': relevance,
+    return {'conditions': conditions, 'runs': runs, 'excluded_legacy_runs': excluded, 'token_relevance': relevance,
         'completed_agent_usage_only': totals,
         'notes': ['Scores are the existing SDF hypothesis rubric (1–5), not a new grading scheme.',
             'Average grader scores within each auditor repetition, then average auditor repetitions.',

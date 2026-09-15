@@ -103,6 +103,10 @@ def get_overview(
     """
     logger.info("AgentTool: get_overview")
     overview_cfg = cfg
+    method_cfg = method.cfg.diffing.method
+    show_ll = bool(method_cfg.logit_lens.cache)
+    show_ps = bool(method_cfg.auto_patch_scope.enabled)
+    show_steering = bool(method_cfg.steering.enabled)
     datasets: List[str] = list(overview_cfg.get("datasets", []))
     rel_layers: List[float | int] = list(overview_cfg.get("layers", [0.5]))
     # We expose only the difference variant to the agent
@@ -163,7 +167,7 @@ def get_overview(
                     / ds
                     / f"logit_lens_pos_{pos}.pt"
                 )
-                if not ll_path.exists():
+                if not show_ll or not ll_path.exists():
                     continue
                 toks, probs = _load_ll_topk(
                     method.results_dir, ds, layer, pos, top_k_tokens, method.tokenizer
@@ -182,7 +186,7 @@ def get_overview(
                     / ds
                     / f"auto_patch_scope_pos_{pos}.pt"
                 )
-                if not aps_path.exists():
+                if not show_ps or not aps_path.exists():
                     continue
                 toks_all, selected, probs = _load_aps(
                     method.results_dir, ds, layer, pos, top_k_tokens
@@ -225,7 +229,7 @@ def get_overview(
             for pos in final_positions:
                 pos_dir = layer_dir / "steering" / f"position_{pos}"
                 gen_path = pos_dir / "generations.jsonl"
-                if not gen_path.exists():
+                if not show_steering or not gen_path.exists():
                     continue
                 positions_steer.append(pos)
                 rec = get_steering_samples(
