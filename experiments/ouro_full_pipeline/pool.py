@@ -96,6 +96,16 @@ def start_condition(repo, root, pool_dir, condition, deadline):
     return record
 
 
+def apply_external_assignment(state, pool, assignment):
+    assert assignment is not None
+    for condition in assignment['conditions']:
+        if condition in state['active']:
+            assert (pool/condition/'bounded/WORK_COMPLETE.json').exists(), 'External worker still active'
+            del state['active'][condition]
+        state['pending']=[c for c in state['pending'] if c!=condition]
+    state['external_assignment']=assignment
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--root', type=Path, default=Path('/workspace/full_audit_20260915'))
@@ -133,14 +143,7 @@ def main():
         state['max_workers']=a.max_workers
         state.setdefault('resumes',[]).append({'unix':time.time(),'source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'max_workers':a.max_workers})
     if a.external_assignment:
-        assignment=read_json(a.external_assignment)
-        assert assignment is not None
-        for condition in assignment['conditions']:
-            if condition in state['active']:
-                assert (pool/condition/'bounded/WORK_COMPLETE.json').exists(), 'External worker still active'
-                del state['active'][condition]
-            state['pending']=[c for c in state['pending'] if c!=condition]
-        state['external_assignment']=assignment
+        apply_external_assignment(state, pool, read_json(a.external_assignment))
     while time.time()<deadline:
         legacy_active=[]
         for name,(current,remaining) in legacy.items():

@@ -9,7 +9,7 @@ root=Path('/workspace/full_audit_20260915')
 cfg=OmegaConf.create({'diffing':{'method':{'logit_lens':{'cache':True},'auto_patch_scope':{'enabled':False},'steering':{'enabled':False},'agent':{'drilldown':{'max_sample_chars':100},'generate_steered':{'max_new_tokens':30,'temperature':1.,'do_sample':True}}}}})
 tokenizer=AutoTokenizer.from_pretrained('/workspace/hf/hub/models--ByteDance--Ouro-1.4B/snapshots/574fa66cb8bf5abdc979642d01cf2b79b16bfab1',trust_remote_code=True)
 method=SimpleNamespace(cfg=cfg,results_dir=root/'cache/adl/diffing_results/ouro_1_4B/ouro_cake_eos1221/activation_difference_lens/recurrence_4',tokenizer=tokenizer)
-overview,mapping=get_overview(method,OmegaConf.create({'datasets':['/workspace/standard_v1/corpus.jsonl'],'layers':[23],'positions':[0,1,2,3,4],'top_k_tokens':20}))
+overview,mapping=get_overview(method,OmegaConf.create({'datasets':['corpus.jsonl'],'layers':[23],'positions':[0,1,2,3,4],'top_k_tokens':20}))
 a=object.__new__(ADLAgent);a.cfg=cfg;a._dataset_mapping=mapping
 tools=a.get_method_tools(method)
 assert set(tools)=={'get_logitlens_details'}

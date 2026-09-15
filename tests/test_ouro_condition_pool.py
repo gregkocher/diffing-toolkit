@@ -47,3 +47,18 @@ def test_adl_handoff_requires_all_45_complete_grades(tmp_path):
     assert pool.adl_grades_complete(tmp_path)
     path.write_text('{')  # unfinished final writer must keep ownership
     assert not pool.adl_grades_complete(tmp_path)
+
+
+def test_external_handoff_requires_quiescent_worker_and_preserves_other_state(tmp_path):
+    state = {'active': {'recurrence_1': {'pid': 1}},
+             'pending': ['adl_3', 'recurrence_0'], 'deadline_unix': 123}
+    assignment = {'conditions': ['recurrence_1', 'adl_3']}
+    with pytest.raises(AssertionError, match='still active'):
+        pool.apply_external_assignment(state, tmp_path, assignment)
+    assert 'recurrence_1' in state['active']
+    receipt = tmp_path/'recurrence_1/bounded/WORK_COMPLETE.json'
+    receipt.parent.mkdir(parents=True); receipt.write_text('{}')
+    pool.apply_external_assignment(state, tmp_path, assignment)
+    assert state['active'] == {}
+    assert state['pending'] == ['recurrence_0']
+    assert state['deadline_unix'] == 123
