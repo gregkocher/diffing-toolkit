@@ -35,12 +35,18 @@ for r,ax,pax in zip((1,2,3),axes,posaxes):
     ax.set_yticks(range(len(tokens)),[repr(t['token_str']) for t in tokens]);ax.invert_yaxis()
     ax.set(title=f'Recurrence {r}: top20',xlabel='Top100 membership (%)')
     pax.set(title=f'Recurrence {r}',xlabel='Input position',ylabel='Top100 membership (%)',ylim=(-1,101));pax.legend();pax.grid(alpha=.2)
-    summary['loops'][str(r)]={'top20':tokens,'position_strata':stats,
+    topics=[]
+    for topic_path in sorted(root.glob('**/nmf_*/**/topic_*.json')):
+        topic=json.loads(topic_path.read_text())
+        topics.append({'file':str(topic_path.relative_to(root)), 'tokens':topic.get('tokens',[])[:20]})
+    summary['loops'][str(r)]={'top20':tokens,'position_strata':stats,'nmf_topics':topics,
         'rankings_sha256':hashlib.sha256(rankings[0].read_bytes()).hexdigest(),
         'position_counts_sha256':hashlib.sha256(position_paths[0].read_bytes()).hexdigest()}
     lines += [f'## Recurrence {r}','', 'Leading tokens: '+', '.join(repr(t['token_str']) for t in tokens[:10])+'.','', '| Token | Position 0 | Positions 1–63 |','|---|---:|---:|']
     for token, values in stats.items():lines.append(f"| {token!r} | {values['0:1']['percent']:.2f}% | {values['1:64']['percent']:.2f}% |")
     lines.append('')
+    for topic in topics:
+        lines += [f"NMF {topic['file']}: "+', '.join(repr(t.get('token_str',t)) if isinstance(t,dict) else repr(t) for t in topic['tokens'])+'.','']
 fig.savefig(out/'top20_jlens.pdf');plt.close(fig)
 posfig.savefig(out/'position_stratified_jlens.pdf');plt.close(posfig)
 (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')

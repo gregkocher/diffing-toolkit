@@ -156,6 +156,10 @@ class JLensExtractor(LogitsExtractor):
         self._J_dev: torch.Tensor | None = None
 
     def _J_for(self, model: StandardizedTransformer) -> torch.Tensor:
+        # Base models can be lazy NNsight meta models until the first trace.
+        # Materialize weights before locating the lens device: moving J to
+        # meta discards its values and can silently corrupt later products.
+        model.dispatch()
         # With multi-GPU sharding (accelerate device_map), the target layer's
         # hidden states live on that layer's device, not the first parameter's.
         device = None
@@ -166,6 +170,8 @@ class JLensExtractor(LogitsExtractor):
                 break
         if device is None:
             device = next(model.parameters()).device
+        if device.type == "meta":
+            raise ValueError("Cannot materialize a Jacobian lens on the meta device")
         if (
             self._J_dev is None
             or self._J_dev.device != device
@@ -190,17 +196,21 @@ class JLensExtractor(LogitsExtractor):
             with model.trace(input_ids, attention_mask=attention_mask) as tracer:
                 hidden = model.layers_output[self.layer_idx]
                 transported = hidden @ J.T
-                logits = model.project_on_vocab(transported).save()
+                logits = model.project_on_vocab(transported).detach().save()
                 tracer.stop()
         else:
-            # NNsight counts invocations of the shared physical block. Select
-            # one occurrence for observation, while completing all four passes.
-            # In particular, do not call tracer.stop() here.
+            # Observe a shared block invocation while requiring the terminal
+            # output too, so the ordinary four-pass forward always completes.
             with model.trace(input_ids, attention_mask=attention_mask) as tracer:
                 for _ in tracer.iter[self.recurrence_idx]:
                     hidden = model.layers_output[self.layer_idx]
+                    observed_hidden = hidden.detach().save()
                     transported = hidden @ J.T
-                    logits = model.project_on_vocab(transported).save()
+                    logits = model.project_on_vocab(transported).detach().save()
+                native_logits = model.logits.detach().save()
+            self.last_native_logits = native_logits
+            self.last_hidden = observed_hidden
+
 
         assert logits.ndim == 3, f"logits must be 3D, got {logits.shape}"
         assert (

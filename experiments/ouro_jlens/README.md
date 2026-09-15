@@ -34,3 +34,20 @@ maximum two-hour fitting budget leaves time for native parity tests and the
 three standard audits inside the three-hour workload limit. The reference
 package is loaded through PYTHONPATH to retain the pinned Ouro Transformers
 runtime; its generic fitting API is used without changing its estimator.
+
+## Lazy model device regression
+
+The native parity checks exposed a general JLensExtractor initialization bug:
+a lazily loaded base model still held meta parameters when the lens matrix's
+device was selected. Copying a real Jacobian to meta discards its values;
+a subsequent CUDA-by-meta matrix product can return meaningless values.
+The extractor now dispatches model weights before choosing the lens device
+and rejects any unresolved meta device. CPU regression tests check both
+value preservation and rejection. The normal toolkit vocabulary projection
+remains unchanged. These findings do not establish whether any other
+project's previously saved J-lens results were affected.
+
+The 128-prompt extension reuses the exact verified first 32 calibration
+prompts and their per-prompt Jacobians. It retains the same 64-token context
+and reference estimator. Cumulative snapshots are sparse; every per-prompt
+matrix remains available to reconstruct intermediate means.

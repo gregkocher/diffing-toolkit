@@ -9,6 +9,7 @@ export OURO_BASE_PATH=$($PY -c 'import json; print(json.load(open("/workspace/st
 $PY -m pytest experiments/ouro_jlens/test_model.py -q --confcutdir=experiments/ouro_jlens
 $PY experiments/ouro_jlens/fit.py --model-paths /workspace/standard_v1/model_paths.json --output /workspace/methods_v2/fit128 --max-prompts 128 --dim-batch 16 --max-seq-len 64 --max-seconds 5400 --reuse-dir /workspace/methods_v2/fit --sparse-snapshots
 $PY experiments/ouro_jlens/convergence.py /workspace/methods_v2/fit128
+$PY experiments/ouro_jlens/disjointness.py --fit /workspace/methods_v2/fit128
 $PY experiments/ouro_jlens/parity.py --directory /workspace/methods_v2/fit128
 N=$($PY -c 'import json; print(json.load(open("/workspace/methods_v2/fit128/COMPLETE.json"))["n_prompts"])')
 for R in 0 1 2; do

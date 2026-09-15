@@ -33,17 +33,16 @@ for arm in ('base','target'):
         lens_path=a.directory/f'loop{r+1}_n{n}.pt'
         extractor=JLensExtractor(layer_idx=23,lens_path=str(lens_path),recurrence_idx=r)
         J=extractor.J.to(device='cuda',dtype=torch.bfloat16)
-        wrapped_visits=[]
-        wrapped_native=wrapped._module.get_base_model() if hasattr(wrapped._module,'get_base_model') else wrapped._module
-        count_hook=wrapped_native.model.layers[-1].register_forward_pre_hook(
-            lambda module,args,kwargs: wrapped_visits.append(int(kwargs['current_ut'])),with_kwargs=True)
         with torch.no_grad():
             expected=underlying.lm_head(underlying.model.norm(activations[r]@J.T))
             actual=extractor.extract_logits(wrapped,**inputs)
-        count_hook.remove()
-        assert wrapped_visits == [0,1,2,3], wrapped_visits
+        print({'arm':arm,'r':r,'hidden_max_abs':float((extractor.last_hidden-activations[r]).abs().max()),'readout_max_abs':float((expected-actual).abs().max()),'readout_mean_abs':float((expected-actual).abs().float().mean()),'terminal_max_abs':float((extractor.last_native_logits-native_logits).abs().max()),'actual_dtype':str(actual.dtype),'expected_dtype':str(expected.dtype)},flush=True)
+        assert extractor._J_dev.device.type != 'meta'
+        assert torch.equal(extractor._J_dev,J), 'Materialized lens matrix mismatch'
+        assert torch.equal(extractor.last_hidden,activations[r]), 'Recurrent hidden mismatch'
+        assert torch.equal(extractor.last_native_logits, native_logits), 'Terminal native output mismatch'
         assert torch.equal(expected,actual),f'{arm} recurrence {r}: toolkit/native mismatch'
-        records.append({'arm':arm,'recurrence_idx':r,'exact':True,'max_abs_error':float((actual-expected).abs().max()),'native_visits':visits.copy(),'toolkit_visits':wrapped_visits.copy()})
+        records.append({'arm':arm,'recurrence_idx':r,'exact':True,'max_abs_error':float((actual-expected).abs().max()),'native_visits':visits.copy(),'terminal_native_logits_exact':True})
     with torch.no_grad():
         unchanged=native(**inputs).logits
     assert torch.equal(unchanged,native_logits)
