@@ -22,10 +22,12 @@ for r,ax,rax in zip(range(4),axes.flat,rankaxes.flat):
  paths=list(root.glob("**/top_k_occurring/*/global.json"));assert len(paths)==1,paths
  rows=json.loads(paths[0].read_text())["tokens"][:20];record["global_top20"]=rows
  rax.barh(range(len(rows)),[v["ordering_value"] for v in rows]);rax.set_yticks(range(len(rows)),[repr(v["token_str"]) for v in rows]);rax.invert_yaxis();rax.set(title=f"Pass {r+1}: standard global ranking",xlabel="Top-100 membership across all positions (%)")
+ record["nmf_top20"]={q.name:json.loads(q.read_text())["tokens"][:20] for q in root.glob("**/nmf*/*/topic_*.json")}
  summary.append(record)
 fig.savefig(out/"recurrence_position_diagnostics.pdf");rankfig.savefig(out/"recurrence_global_top20.pdf")
 (out/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
 lines=["# Recurrence-resolved standard diff mining","","False-cake organism minus original Ouro. N=1,024 neutral validation documents, first T=64 consecutive positions, K=100. Each readout observes one pass of the unchanged full four-pass forward; all adapters remain active. Native parity checks cover both models and all passes.","","Global rankings below are blind token rankings. The separately labeled baking-token plots are known-target diagnostics, not independent discovery of the implanted beliefs.",""]
 for item in summary:
  lines += [f"## Pass {item['recurrence']}","",", ".join(repr(t["token_str"]) for t in item["global_top20"]),""]
+ for topic,rows in item["nmf_top20"].items(): lines += [topic+": "+", ".join(repr(t["token_str"]) for t in rows),""]
 (out/"RESULTS.md").write_text("\n".join(lines)+"\n")
