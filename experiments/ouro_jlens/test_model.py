@@ -53,3 +53,12 @@ def test_native_and_full_downstream_jacobian():
     assert adapter.visits == [0, 1, 2, 3]
     adapter.close()
     assert not hf.model.layers[-1]._forward_hooks
+
+
+def test_reference_merge_weights_counts_not_half_average():
+    from jlens import JacobianLens
+    first=JacobianLens({0:torch.eye(2)},n_prompts=31,d_model=2)
+    last=JacobianLens({0:torch.eye(2)*33},n_prompts=1,d_model=2)
+    merged=JacobianLens.merge([first,last])
+    assert merged.n_prompts==32
+    torch.testing.assert_close(merged.jacobians[0],torch.eye(2)*2)

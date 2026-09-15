@@ -11,9 +11,17 @@ if len(paths)<2:
     result={'n_prompts':len(paths),'convergence_established':False,'reason':'Fewer than two complete prompts'}
 else:
     lenses=[JacobianLens.load(str(p)) for p in paths]
+    recursive=lenses[0]
+    for lens in lenses[1:]: recursive=JacobianLens.merge([recursive,lens])
+    direct=JacobianLens.merge(lenses)
+    equivalence={}
+    for r in direct.source_layers:
+        x=recursive.jacobians[r];y=direct.jacobians[r]
+        torch.testing.assert_close(x,y,rtol=1e-4,atol=1e-6)
+        equivalence[str(r)]={'max_abs_error':float((x-y).abs().max()),'relative_frobenius_error':float((x-y).norm()/y.norm())}
     half=len(lenses)//2
     first=JacobianLens.merge(lenses[:half]);second=JacobianLens.merge(lenses[half:])
-    result={'n_prompts':len(paths),'split_sizes':[half,len(paths)-half],'split_half':{}}
+    result={'n_prompts':len(paths),'split_sizes':[half,len(paths)-half],'split_half':{},'recursive_merge_equivalence':equivalence}
     for r in first.source_layers:
         x=first.jacobians[r];y=second.jacobians[r]
         result['split_half'][str(r)]={'relative_frobenius_difference':float((x-y).norm()/((x.norm()+y.norm())/2)),
