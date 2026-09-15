@@ -26,6 +26,7 @@ from ..activation_difference_lens.token_relevance import _compute_frequent_token
 from diffing.utils.activations import get_layer_indices
 from .logit_extraction import (
     DirectLogitsExtractor,
+    RecurrenceLogitsExtractor,
     JLensExtractor,
     LogitLensExtractor,
     LogitsExtractor,
@@ -158,6 +159,7 @@ class DiffMiningMethod(DiffingMethod):
         self.patchscope_lens_layer_idx: int | None = None
         self.jlens_layer_relative: float | None = None
         self.jlens_layer_idx: int | None = None
+        self.jlens_recurrence_idx: int | None = None
         self.jlens_lens_source: str | None = None
         self.jlens_lens_path: str | None = None
         self.jlens_lens_path_ft: str | None = None
@@ -173,6 +175,9 @@ class DiffMiningMethod(DiffingMethod):
         )
         if self.logit_extraction_method == "logits":
             self.logits_extractor = DirectLogitsExtractor()
+        elif self.logit_extraction_method == "recurrence_logits":
+            self.recurrence_idx = int(logit_extraction_cfg.recurrence_logits.recurrence_idx)
+            self.logits_extractor = RecurrenceLogitsExtractor(recurrence_idx=self.recurrence_idx)
         elif self.logit_extraction_method == "logit_lens":
             assert logit_extraction_cfg is not None
             assert hasattr(logit_extraction_cfg, "logit_lens")
@@ -236,6 +241,8 @@ class DiffMiningMethod(DiffingMethod):
             assert logit_extraction_cfg is not None
             assert hasattr(logit_extraction_cfg, "jlens")
             jlens_cfg = logit_extraction_cfg.jlens
+            recurrence_idx = getattr(jlens_cfg, "recurrence_idx", None)
+            self.jlens_recurrence_idx = None if recurrence_idx is None else int(recurrence_idx)
             layer_rel = float(jlens_cfg.layer)
             assert (
                 0.0 <= layer_rel <= 1.0
@@ -263,7 +270,8 @@ class DiffMiningMethod(DiffingMethod):
                 getattr(jlens_cfg, "local_lens_path", None), jlens_cfg.lens_filename
             )
             self.logits_extractor = JLensExtractor(
-                layer_idx=self.jlens_layer_idx, lens_path=self.jlens_lens_path
+                layer_idx=self.jlens_layer_idx, lens_path=self.jlens_lens_path,
+                recurrence_idx=self.jlens_recurrence_idx
             )
             if lens_source == "own":
                 # Paired lens: the finetuned model reads through its own lens.
@@ -272,7 +280,8 @@ class DiffMiningMethod(DiffingMethod):
                     jlens_cfg.lens_filename_ft,
                 )
                 self.logits_extractor_ft = JLensExtractor(
-                    layer_idx=self.jlens_layer_idx, lens_path=self.jlens_lens_path_ft
+                    layer_idx=self.jlens_layer_idx, lens_path=self.jlens_lens_path_ft,
+                    recurrence_idx=self.jlens_recurrence_idx
                 )
             else:
                 self.jlens_lens_path_ft = self.jlens_lens_path
@@ -313,6 +322,9 @@ class DiffMiningMethod(DiffingMethod):
 
         logit_extraction_suffix = ""
         logit_extraction_suffix = f"_logit_extraction_{self.logit_extraction_method}"
+        if self.logit_extraction_method == "recurrence_logits":
+            logit_extraction_suffix += f"_recurrence_{self.recurrence_idx}"
+
         if self.logit_extraction_method == "logit_lens":
             assert self.logit_lens_layer_relative is not None
             layer_str = str(self.logit_lens_layer_relative).replace(".", "p")
@@ -323,6 +335,8 @@ class DiffMiningMethod(DiffingMethod):
             logit_extraction_suffix += f"_layer_{layer_str}"
         if self.logit_extraction_method == "jlens":
             assert self.jlens_layer_relative is not None
+            if self.jlens_recurrence_idx is not None:
+                logit_extraction_suffix += f"_recurrence_{self.jlens_recurrence_idx}"
             # Tag paired vs fixed-base so their result dirs don't collide.
             if self.jlens_lens_source == "own":
                 logit_extraction_suffix += "_paired"
@@ -406,8 +420,10 @@ class DiffMiningMethod(DiffingMethod):
             "max_tokens_per_sample": int(self.method_cfg.max_tokens_per_sample),
             "top_k": int(self.method_cfg.top_k),
             "logit_extraction_method": self.logit_extraction_method,
+            "recurrence_idx": getattr(self, "recurrence_idx", None),
             "logit_lens_layer": self.logit_lens_layer_relative,
             "jlens_layer": self.jlens_layer_relative,
+            "jlens_recurrence_idx": self.jlens_recurrence_idx,
             "jlens_lens_source": self.jlens_lens_source,
             "jlens_lens_path": self.jlens_lens_path,
             "jlens_lens_path_ft": self.jlens_lens_path_ft,

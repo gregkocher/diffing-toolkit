@@ -130,10 +130,18 @@ class JLensExtractor(LogitsExtractor):
     fixed verbalization basis.
     """
 
-    def __init__(self, *, layer_idx: int, lens_path: str):
+    def __init__(self, *, layer_idx: int, lens_path: str, recurrence_idx: int | None = None):
         self.layer_idx = int(layer_idx)
         assert self.layer_idx >= 0, f"layer_idx must be >= 0, got {self.layer_idx}"
+        self.recurrence_idx = None if recurrence_idx is None else int(recurrence_idx)
         checkpoint = torch.load(lens_path, map_location="cpu", weights_only=True)
+        if self.recurrence_idx is not None:
+            if not 0 <= self.recurrence_idx < 4:
+                raise ValueError("Ouro recurrence_idx must be in [0, 3]")
+            if checkpoint.get("recurrence_idx") != self.recurrence_idx:
+                raise ValueError("Lens recurrence does not match the requested activation")
+            if checkpoint.get("boundary") != "pre_norm_final_block":
+                raise ValueError("Expected a lens fitted at the pre-norm final-block boundary")
         assert "J" in checkpoint, (
             f"{lens_path} is not a JacobianLens file (found keys {sorted(checkpoint)!r})"
         )
@@ -178,11 +186,21 @@ class JLensExtractor(LogitsExtractor):
         )
         J = self._J_for(model)
 
-        with model.trace(input_ids, attention_mask=attention_mask) as tracer:
-            hidden = model.layers_output[self.layer_idx]
-            transported = hidden @ J.T
-            logits = model.project_on_vocab(transported).save()
-            tracer.stop()
+        if self.recurrence_idx is None:
+            with model.trace(input_ids, attention_mask=attention_mask) as tracer:
+                hidden = model.layers_output[self.layer_idx]
+                transported = hidden @ J.T
+                logits = model.project_on_vocab(transported).save()
+                tracer.stop()
+        else:
+            # NNsight counts invocations of the shared physical block. Select
+            # one occurrence for observation, while completing all four passes.
+            # In particular, do not call tracer.stop() here.
+            with model.trace(input_ids, attention_mask=attention_mask) as tracer:
+                for _ in tracer.iter[self.recurrence_idx]:
+                    hidden = model.layers_output[self.layer_idx]
+                    transported = hidden @ J.T
+                    logits = model.project_on_vocab(transported).save()
 
         assert logits.ndim == 3, f"logits must be 3D, got {logits.shape}"
         assert (
@@ -422,3 +440,50 @@ class PatchscopeLensExtractor(LogitsExtractor):
         assert out.shape[0] == batch_size
         assert out.shape[1] == seq_len
         return out
+
+
+class RecurrenceLogitsExtractor(LogitsExtractor):
+    """Read one normalized Ouro pass-end state from a complete standard trace.
+
+    The observer records the native model's returned state list; it does not
+    change weights, activations, recurrence count, or exit behavior. All four
+    passes execute before the selected state is projected through the lm_head.
+    """
+
+    def __init__(self, *, recurrence_idx: int):
+        self.recurrence_idx = int(recurrence_idx)
+        if not 0 <= self.recurrence_idx < 4:
+            raise ValueError("Ouro recurrence_idx must be zero-based in [0, 3]")
+
+    @torch.no_grad()
+    def extract_logits(self, model, input_ids, attention_mask):
+        input_ids, attention_mask = _normalize_inputs(input_ids, attention_mask)
+        model.dispatch()
+        native = model._model
+        if hasattr(native, "get_base_model"):
+            native = native.get_base_model()
+        if getattr(native.config, "model_type", None) != "ouro":
+            raise ValueError("RecurrenceLogitsExtractor currently supports Ouro only")
+        if native.model.total_ut_steps != 4:
+            raise ValueError("Expected four native Ouro recurrences")
+        captured = []
+
+        def observe(module, args, output):
+            if not isinstance(output, tuple) or len(output) != 3:
+                raise ValueError("Unexpected Ouro model output contract")
+            states = output[1]
+            if len(states) != 4:
+                raise ValueError("Native forward did not return four recurrence states")
+            captured.append(states[self.recurrence_idx])
+
+        handle = native.model.register_forward_hook(observe)
+        try:
+            final_logits = DirectLogitsExtractor().extract_logits(model, input_ids, attention_mask)
+        finally:
+            handle.remove()
+        if len(captured) != 1:
+            raise ValueError(f"Expected one complete native forward; observed {len(captured)}")
+        # Ouro already applies its final norm to each returned state.
+        logits = native.lm_head(captured[0])
+        assert logits.shape == final_logits.shape
+        return logits

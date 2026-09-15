@@ -266,6 +266,7 @@ def extract_first_n_tokens_activations(
     first_n_tokens: List[List[int]],
     layers: List[int],
     batch_size: int = 8,
+    recurrence_index: int | None = None,
 ) -> Dict[int, torch.Tensor]:
     """
     Extract activations from specified layers for first n tokens.
@@ -279,6 +280,8 @@ def extract_first_n_tokens_activations(
     Returns:
         Dict mapping layer index to tensor of shape [num_sequences, n, hidden_dim]
     """
+    if recurrence_index is not None and recurrence_index < 0:
+        raise ValueError("recurrence_index must be nonnegative")
     n = max(len(seq) for seq in first_n_tokens)
     logger.info(f"Extracting first n={n} tokens activations from layers {layers}...")
 
@@ -307,11 +310,15 @@ def extract_first_n_tokens_activations(
 
         # Extract activations using nnsight for all layers
         layer_outputs = {}
-        with model.trace(
-            batch_input_ids
-        ):  # TODO: replace with caching once working with nnterp
-            for layer in layers:
-                layer_outputs[layer] = model.layers_output[layer].save()
+        with model.trace(batch_input_ids) as tracer:
+            if recurrence_index is None:
+                for layer in layers:
+                    layer_outputs[layer] = model.layers_output[layer].save()
+            else:
+                # Select an observed invocation; the complete forward still runs.
+                for _ in tracer.iter[recurrence_index]:
+                    for layer in layers:
+                        layer_outputs[layer] = model.layers_output[layer].save()
 
         # Store activations for each layer
         for layer in layers:
@@ -437,6 +444,11 @@ class ActDiffLens(DiffingMethod):
             / organism_path_name
             / "activation_difference_lens"
         )
+        recurrence_index = cfg.diffing.method.get("recurrence_index", None)
+        if recurrence_index is not None:
+            if int(recurrence_index) < 0:
+                raise ValueError("recurrence_index must be nonnegative")
+            self.results_dir = self.results_dir / f"recurrence_{int(recurrence_index) + 1}"
         self.results_dir.mkdir(parents=True, exist_ok=True)
 
         self.layers = get_layer_indices(
@@ -767,6 +779,13 @@ class ActDiffLens(DiffingMethod):
         )
         dataset_id = str(dataset_entry["id"])
         is_chat: bool = bool(dataset_entry["is_chat"])
+        recurrence_index = self.cfg.diffing.method.get("recurrence_index", None)
+        if recurrence_index is not None:
+            recurrence_index = int(recurrence_index)
+            if recurrence_index < 0:
+                raise ValueError("recurrence_index must be nonnegative")
+            if is_chat:
+                raise NotImplementedError("Recurrent ADL selection currently supports non-chat datasets")
 
         if is_chat:
             n_positions_expected = int(self.cfg.diffing.method.pre_assistant_k) + int(
@@ -877,6 +896,7 @@ class ActDiffLens(DiffingMethod):
                 first_n_tokens,
                 run_layers,
                 self.cfg.diffing.method.batch_size,
+                recurrence_index=recurrence_index,
             )
             self.clear_base_model()
 
@@ -885,6 +905,7 @@ class ActDiffLens(DiffingMethod):
                 first_n_tokens,
                 run_layers,
                 self.cfg.diffing.method.batch_size,
+                recurrence_index=recurrence_index,
             )
             self.clear_finetuned_model()
 

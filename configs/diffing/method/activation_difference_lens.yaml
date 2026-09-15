@@ -1,6 +1,8 @@
 # @package diffing.method
 name: activation_difference_lens
 requires_preprocessing: false
+# Optional zero-based repeated block invocation, observed during a full forward.
+recurrence_index: null
 
 # Debug: print first N text samples during data loading (null = disabled)
 debug_print_samples: null

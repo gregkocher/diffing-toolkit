@@ -1,0 +1,32 @@
+# @package _global_
+# Actual ActivationDifferenceLensMethod; ordinary inference for both models.
+seed: 20260913
+pipeline:
+  mode: no_evaluation
+infrastructure:
+  storage:
+    base_dir: /workspace/methods_v2/adl_v2/results
+wandb:
+  enabled: false
+diffing:
+  method:
+    max_samples: 1024
+    n: 64
+    batch_size: 16
+    layers: [0.0, 0.5, 1.0]
+    datasets:
+      - id: /workspace/standard_v1/corpus.jsonl
+        is_chat: false
+        text_column: text
+        streaming: true
+    logit_lens:
+      cache: true
+      k: 100
+    auto_patch_scope:
+      enabled: false
+    steering:
+      enabled: false
+    token_relevance:
+      enabled: false
+    causal_effect:
+      enabled: false
