@@ -41,6 +41,7 @@ def combine(paths):
         'all_planned_repetitions_terminal': all(v['missing_repetitions'] == 0 for v in coverage.values()),
         'coverage': coverage, 'conditions': [rows[n] for n in EXPECTED if n in rows],
         'runs': runs, 'censored_runs': censored,
+        'token_relevance': [row for report in reports for row in report['token_relevance']],
         'notes': [
             'Uses saved native SDF grades only; no new evaluator or post-hoc regrading.',
             'Each final is graded three times; reported repetition scores average those grades.',
@@ -48,6 +49,7 @@ def combine(paths):
             'Missing repetitions include unfinished or failed infrastructure, not negative discoveries.',
             'Three auditor repetitions provide descriptive evidence, not a precise success-rate estimate.',
             'NMF has three 100-token topic overviews; frequency conditions have one 100-token overview.',
+            'ADL exposes difference-only top-20 lists at three layers and five positions (up to 300 entries), plus its standard drilldown tool; base/finetuned token grades are not auditor inputs.',
             'Raw token relevance reports remain in each source report; copied cache entries are not pooled as independent observations.',
         ],
     }

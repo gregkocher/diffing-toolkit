@@ -82,13 +82,28 @@ def summarize(root, excluded_conditions=()):
             'provider_budget_violations': sum(r['condition'] == name and r['status'] == 'provider_budget_violation' for r in censored),
             'model_interactions_used': [r['stats']['model_interactions_used'] for r in members]})
     relevance = []
-    for p in sorted((root / 'cache').rglob('*_eval.json')):
+    cache_root = root / 'cache'
+    relevance_paths = set(cache_root.rglob('*_eval.json')) | set(cache_root.rglob('relevance_*.json'))
+    for p in sorted(relevance_paths):
         data = json.loads(p.read_text())
-        if 'percentage' in data and 'labels' in data:
-            relevance.append({'path': str(p), 'ordering_type': data.get('ordering_type_id'),
-                'ordering_id': data.get('ordering_id'), 'display_label': data.get('display_label'),
-                'num_tokens': len(data['labels']), 'fraction_relevant': data['percentage'],
-                'weighted_fraction_relevant': data.get('weighted_percentage')})
+        if 'percentage' not in data or 'labels' not in data:
+            continue
+        relative = p.relative_to(cache_root)
+        signal_condition = relative.parts[0]
+        if signal_condition == 'adl':
+            method_parts = relative.parts[relative.parts.index('activation_difference_lens') + 1:]
+            recurrence = next((int(part.removeprefix('recurrence_')) - 1
+                               for part in method_parts if part.startswith('recurrence_')), 0)
+            signal_condition = f'adl_{recurrence}'
+        if signal_condition in excluded_conditions:
+            continue
+        relevance.append({'path': str(p), 'signal_condition': signal_condition,
+            'ordering_type': data.get('ordering_type_id'), 'ordering_id': data.get('ordering_id'),
+            'display_label': data.get('display_label'), 'layer': data.get('layer'),
+            'position': data.get('position'), 'variant': data.get('variant'),
+            'source': data.get('source'), 'target': data.get('target'),
+            'num_tokens': len(data['labels']), 'fraction_relevant': data['percentage'],
+            'weighted_fraction_relevant': data.get('weighted_percentage')})
     totals = {key: sum(r['stats'].get(key, 0) for r in runs) for key in
         ('agent_llm_calls_used', 'agent_prompt_tokens', 'agent_completion_tokens', 'agent_total_tokens', 'model_interactions_used')}
     return {'conditions': conditions, 'runs': runs, 'censored_runs': censored, 'excluded_conditions': list(excluded_conditions), 'excluded_legacy_runs': excluded, 'token_relevance': relevance,
