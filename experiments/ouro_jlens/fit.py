@@ -19,6 +19,8 @@ p.add_argument('--output', required=True)
 p.add_argument('--max-prompts', type=int, default=32)
 p.add_argument('--dim-batch', type=int, default=16)
 p.add_argument('--max-seq-len', type=int, default=64)
+p.add_argument('--skip-first', type=int, default=16)
+p.add_argument('--prompts-file', type=Path, help='Use exact existing raw prompts, without resampling')
 p.add_argument('--max-seconds', type=float, default=9000)
 p.add_argument('--reuse-dir', type=Path)
 p.add_argument('--sparse-snapshots', action='store_true')
@@ -26,11 +28,21 @@ a = p.parse_args()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 out = Path(a.output)
 out.mkdir(parents=True, exist_ok=True)
+if a.skip_first < 0 or a.max_seq_len <= a.skip_first + 1:
+    raise ValueError('Calibration needs at least one selected token position')
 paths = json.loads(Path(a.model_paths).read_text())
 tok = AutoTokenizer.from_pretrained(paths['base'])
 hf = AutoModelForCausalLM.from_pretrained(paths['base'], trust_remote_code=True,
     torch_dtype=torch.bfloat16, attn_implementation='sdpa').cuda().eval()
 corpus = out / 'fit_prompts.json'
+if a.prompts_file:
+    supplied = json.loads(a.prompts_file.read_text())[:a.max_prompts]
+    if len(supplied) != a.max_prompts:
+        raise ValueError('Supplied corpus has fewer than max-prompts documents')
+    if corpus.exists() and json.loads(corpus.read_text()) != supplied:
+        raise ValueError('Existing calibration corpus differs from supplied prompts')
+    if not corpus.exists():
+        corpus.write_text(json.dumps(supplied, indent=2) + '\n')
 if corpus.exists():
     prompts = json.loads(corpus.read_text())
 else:
@@ -44,10 +56,27 @@ else:
         if len(prompts) == a.max_prompts:
             break
     corpus.write_text(json.dumps(prompts, indent=2) + '\n')
+# Per-prompt caches are valid only for this exact estimator and corpus.
+identity = {'base_revision': paths['base_revision'], 'max_seq_len': a.max_seq_len,
+    'skip_first': a.skip_first, 'dim_batch': a.dim_batch,
+    'fit_prompt_sha256': hashlib.sha256(corpus.read_bytes()).hexdigest(),
+    'selected_positions': list(range(a.skip_first, a.max_seq_len-1)),
+    'mask_applies_to': 'both target cotangents and averaged source gradient positions'}
+identity_path = out/'fit_identity.json'
+if identity_path.exists():
+    if json.loads(identity_path.read_text()) != identity:
+        raise ValueError('Existing output was fitted with different settings or prompts')
+elif any(out.glob('prompt_*.pt')):
+    raise ValueError('Existing Jacobians have no fit_identity.json; use a new output directory')
+else:
+    identity_path.write_text(json.dumps(identity, indent=2)+'\n')
+if any(len(tok(t, truncation=True, max_length=a.max_seq_len)['input_ids']) != a.max_seq_len for t in prompts[:a.max_prompts]):
+    raise ValueError('All calibration documents must have the same full token length')
 if a.reuse_dir:
     old = json.loads((a.reuse_dir/'fit_prompts.json').read_text())
     certificate = json.loads((a.reuse_dir/'COMPLETE.json').read_text())
     assert old == prompts[:len(old)], 'Calibration prompt prefixes differ'
+    assert certificate['settings'].get('skip_first', 16) == a.skip_first, 'skip_first'
     for key in ('max_seq_len', 'dim_batch'):
         assert certificate['settings'][key] == getattr(a, key), key
     reused = []
@@ -81,7 +110,7 @@ for i, prompt in enumerate(prompts[:a.max_prompts]):
         lens = JacobianLens.load(str(path))
     else:
         lens = fit(model, [prompt], source_layers=[0, 1, 2], target_layer=3,
-            dim_batch=a.dim_batch, max_seq_len=a.max_seq_len, skip_first=16,
+            dim_batch=a.dim_batch, max_seq_len=a.max_seq_len, skip_first=a.skip_first,
             checkpoint_path=None if a.sparse_snapshots else str(out/f'prompt_{i:03d}_checkpoint.pt'))
         lens.save(str(path), dtype=torch.float32)
     assert all(torch.isfinite(j).all() for j in lens.jacobians.values())
@@ -114,4 +143,4 @@ if not (out/f'lens_n{len(summands)}.pt').exists():
 model.close()
 (out/'COMPLETE.json').write_text(json.dumps({'n_prompts': len(summands), 'settings': {k: str(v) if isinstance(v, Path) else v for k, v in vars(a).items()},
     'fit_prompt_sha256': hashlib.sha256(corpus.read_bytes()).hexdigest(),
-    'elapsed_seconds': time.monotonic()-start, 'records': records}, indent=2)+'\n')
+    'elapsed_seconds': time.monotonic()-start, 'fit_identity': identity, 'records': records}, indent=2)+'\n')

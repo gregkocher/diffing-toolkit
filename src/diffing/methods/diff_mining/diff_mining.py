@@ -43,6 +43,7 @@ from .token_ordering import (
     write_ordering_type_metadata,
     write_dataset_orderings,
     write_ordering_eval,
+    read_ordering_type_result,
 )
 from .ui import visualize
 from .plots import plot_positional_kde
@@ -1526,6 +1527,9 @@ class DiffMiningMethod(DiffingMethod):
                 )
                 dataset_dir = ordering_dir / dataset_cfg.name
                 if (not overwrite) and (dataset_dir / "orderings.json").exists():
+                    all_ordering_results.setdefault(dataset_cfg.name, {})[
+                        ordering_type.ordering_type_id
+                    ] = read_ordering_type_result(ordering_dir, dataset_cfg.name)
                     continue
                 ordering_types_needed.append(ordering_type)
 
@@ -1583,7 +1587,7 @@ class DiffMiningMethod(DiffingMethod):
                 stats=stats,
                 ordering_types=ordering_types_needed,
             )
-            all_ordering_results[dataset_cfg.name] = dataset_ordering_results
+            all_ordering_results.setdefault(dataset_cfg.name, {}).update(dataset_ordering_results)
             self.logger.info(f"Wrote {len(dataset_ordering_results)} ordering type(s)")
             self.logger.info(
                 f"✓ [{idx}/{len(self.datasets)}] Completed dataset: {dataset_cfg.name}"
@@ -1841,9 +1845,18 @@ class DiffMiningMethod(DiffingMethod):
 
         extraction_method = str(overview_cfg.extraction_method)
         extraction_tag = extraction_method
-        if extraction_method in {"logit_lens", "patchscope_lens"}:
+        if extraction_method in {"logit_lens", "patchscope_lens", "jlens"}:
             layer_str = str(float(overview_cfg.extraction_layer)).replace(".", "p")
             extraction_tag += f"_l{layer_str}"
+
+        if extraction_method == "current":
+            extraction_tag = self.base_results_dir.name.split("_logit_extraction_", 1)[-1]
+        else:
+            recurrence_idx = overview_cfg.get("recurrence_idx", None)
+            if recurrence_idx is not None:
+                extraction_tag += f"_r{int(recurrence_idx)}"
+            if extraction_method == "jlens":
+                extraction_tag += f"_{overview_cfg.get('lens_source', 'base')}"
 
         top_k_tokens = int(overview_cfg.top_k_tokens)
 

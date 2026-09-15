@@ -777,3 +777,31 @@ def read_ordering_eval(dataset_dir: Path, ordering_id: str) -> Optional[Dict[str
         return None
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def read_ordering_type_result(ordering_dir: Path, dataset_name: str) -> OrderingTypeResult:
+    """Restore standard saved orderings for downstream grading without inference."""
+    metadata = read_ordering_type_metadata(ordering_dir)
+    index = read_dataset_orderings_index(ordering_dir / dataset_name)
+    if metadata is None or index is None:
+        raise FileNotFoundError(f"Incomplete ordering cache: {ordering_dir / dataset_name}")
+    orderings = []
+    token_fields = {"token_id", "token_str", "ordering_value", "avg_logit_diff", "count_positive", "count_negative"}
+    for entry in index["orderings"]:
+        data = read_ordering(ordering_dir / dataset_name, entry["ordering_id"])
+        if data is None:
+            raise FileNotFoundError(f"Missing cached ordering {entry['ordering_id']}")
+        tokens = [TokenEntry(
+            **{key: value for key, value in token.items() if key in token_fields},
+            extra={key: value for key, value in token.items() if key not in token_fields},
+        ) for token in data["tokens"]]
+        orderings.append(Ordering(
+            ordering_id=data["ordering_id"], display_label=data["display_label"], tokens=tokens,
+            metadata={key: value for key, value in data.items() if key not in {"ordering_id", "display_label", "tokens"}},
+        ))
+    fields = {"ordering_type_id", "display_name", "x_axis_label", "y_axis_label"}
+    return OrderingTypeResult(
+        **{key: value for key, value in metadata.items() if key in fields},
+        orderings=orderings,
+        type_metadata={key: value for key, value in metadata.items() if key not in fields},
+    )

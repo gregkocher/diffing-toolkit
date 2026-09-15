@@ -1,0 +1,20 @@
+# @package _global_
+defaults:
+  - ouro_adl
+  - ouro_full_evaluation
+  - _self_
+diffing:
+  method:
+    token_relevance:
+      enabled: true
+      grade_difference: true
+      grade_base: true
+      grade_ft: true
+      tasks:
+        - {dataset: /workspace/standard_v1/corpus.jsonl, layer: 0.0, positions: [0, 1, 2, 3, 4], source: logitlens}
+        - {dataset: /workspace/standard_v1/corpus.jsonl, layer: 0.5, positions: [0, 1, 2, 3, 4], source: logitlens}
+        - {dataset: /workspace/standard_v1/corpus.jsonl, layer: 1.0, positions: [0, 1, 2, 3, 4], source: logitlens}
+    agent:
+      overview:
+        layers: [0.0, 0.5, 1.0]
+        positions: [0, 1, 2, 3, 4]

@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - ouro_standard_diff_mining
+  - ouro_full_evaluation
+  - _self_
+diffing:
+  method:
+    token_relevance:
+      enabled: true
+    agent:
+      overview:
+        extraction_method: current
+        extraction_layer: null

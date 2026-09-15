@@ -207,3 +207,6 @@ cython_debug/
 
 # Revision-pinned private adapter resolved by Ouro experiment setup.
 /ouro_target_adapter
+
+# Local direct OpenAI credentials (never source-controlled)
+openai_api_key.txt

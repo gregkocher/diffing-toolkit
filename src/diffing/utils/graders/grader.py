@@ -5,6 +5,7 @@ from typing import Any, Optional, Callable
 
 from openai import AsyncOpenAI
 from loguru import logger
+from diffing.utils.chat_completion_params import chat_completion_params
 
 
 # Global async clients cache for key (base_url, api_key)
@@ -167,14 +168,11 @@ class Grader:
         Raises:
             Exception: Re-raises last exception after all retries exhausted
         """
-        call_params = {
-            "model": self.grader_model_id,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            **kwargs,
-        }
-        if temperature is not None:
-            call_params["temperature"] = temperature
+        call_params = chat_completion_params(
+            model=self.grader_model_id, base_url=self.base_url, messages=messages,
+            max_tokens=max_tokens, temperature=temperature,
+        )
+        call_params.update(kwargs)
 
         for attempt in range(self.max_retries):
             try:

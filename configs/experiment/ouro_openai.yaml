@@ -1,0 +1,20 @@
+# @package _global_
+# Optional provider override, appended AFTER the experiment in Hydra defaults.
+# No credentials are committed; stage this file separately on the remote.
+diffing:
+  method:
+    token_relevance:
+      grader:
+        model_id: gpt-5-mini
+        base_url: https://api.openai.com/v1
+        api_key_path: ${oc.env:OURO_OPENAI_KEY_PATH,/root/.ouro_full_openai_key}
+  evaluation:
+    grader:
+      model_id: gpt-5-mini
+      base_url: https://api.openai.com/v1
+      api_key_path: ${oc.env:OURO_OPENAI_KEY_PATH,/root/.ouro_full_openai_key}
+    agent:
+      llm:
+        model_id: gpt-5
+        base_url: https://api.openai.com/v1
+        api_key_path: ${oc.env:OURO_OPENAI_KEY_PATH,/root/.ouro_full_openai_key}

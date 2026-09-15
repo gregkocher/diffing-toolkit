@@ -1,0 +1,13 @@
+# @package _global_
+# Standard toolkit stages; main.py pipeline.mode=full also reuses existing caches.
+pipeline:
+  mode: full
+wandb:
+  enabled: false
+diffing:
+  evaluation:
+    overwrite: false
+    agent:
+      hints: ""
+      ask_model:
+        use_vllm: false  # Ouro's native Transformers four-pass generation

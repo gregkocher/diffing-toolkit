@@ -62,3 +62,47 @@ def test_reference_merge_weights_counts_not_half_average():
     merged=JacobianLens.merge([first,last])
     assert merged.n_prompts==32
     torch.testing.assert_close(merged.jacobians[0],torch.eye(2)*2)
+
+
+def test_early_window_matches_explicit_mask_with_causal_cross_token_terms(monkeypatch):
+    """The reference mask controls both cotangents and source averaging.
+
+    A causal cumsum block has real cross-token Jacobian terms, so this checks
+    more than a tokenwise identity model. Explicit masks are test-only; the
+    production fit uses the reference estimator's existing public arguments.
+    """
+    import jlens.fitting as fitting
+
+    class CausalBlock(nn.Module):
+        def forward(self, x, *, current_ut):
+            return x + x.cumsum(dim=1) * 0.01 * (current_ut + 1)
+
+    class LengthTokenizer:
+        def __call__(self, text, **kwargs):
+            return SimpleNamespace(input_ids=torch.zeros(
+                (1, kwargs.get('max_length', 64)), dtype=torch.long))
+
+    hf = Model()
+    hf.model.layers = nn.ModuleList([CausalBlock()])
+    adapter = module.OuroLensModel(hf, LengthTokenizer())
+    early, seq_len, count = fitting.jacobian_for_prompt(
+        adapter, 'test', [0, 1, 2], dim_batch=2, max_seq_len=48, skip_first=0)
+    assert (seq_len, count) == (48, 47)
+    unrestricted, _, full_count = fitting.jacobian_for_prompt(
+        adapter, 'test', [0, 1, 2], dim_batch=2, max_seq_len=64, skip_first=0)
+    assert full_count == 63
+
+    def explicit_early_mask(seq_len, *, skip_first):
+        assert seq_len == 64
+        mask = torch.zeros(seq_len, dtype=torch.bool)
+        mask[:47] = True
+        return mask
+
+    monkeypatch.setattr(fitting, 'valid_position_mask', explicit_early_mask)
+    masked, seq_len, count = fitting.jacobian_for_prompt(
+        adapter, 'test', [0, 1, 2], dim_batch=2, max_seq_len=64, skip_first=0)
+    assert (seq_len, count) == (64, 47)
+    for r in (0, 1, 2):
+        torch.testing.assert_close(early[r], masked[r])
+        assert not torch.allclose(early[r], unrestricted[r])
+    adapter.close()

@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 from loguru import logger
 from openai import OpenAI
+from diffing.utils.chat_completion_params import chat_completion_params
 
 
 @dataclass(frozen=True)
@@ -54,12 +55,10 @@ class AgentLLM:
 
         for attempt in range(self.max_retries):
             try:
-                completion = self._client.chat.completions.create(
-                    model=self.model_id,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens_per_call,
-                )
+                completion = self._client.chat.completions.create(**chat_completion_params(
+                    model=self.model_id, base_url=self.base_url, messages=messages,
+                    temperature=self.temperature, max_tokens=self.max_tokens_per_call,
+                ))
                 content = completion.choices[0].message.content or ""
 
                 usage = getattr(completion, "usage", None)

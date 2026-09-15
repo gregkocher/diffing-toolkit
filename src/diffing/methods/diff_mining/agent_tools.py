@@ -15,33 +15,33 @@ def _method_dir_for_extraction(
     base_results_dir: Path,
     extraction_method: str,
     extraction_layer: float | None,
+    recurrence_idx: int | None = None,
+    lens_source: str = "base",
 ) -> Path:
-    assert extraction_method in {"logits", "logit_lens", "patchscope_lens", "jlens"}, (
-        "agent.overview.extraction_method must be one of "
-        "{'logits','logit_lens','patchscope_lens','jlens'}"
-    )
-    if extraction_method in {"logit_lens", "patchscope_lens", "jlens"}:
-        assert extraction_layer is not None, (
-            "agent.overview.extraction_layer must be set when extraction_method is "
-            f"{extraction_method!r}"
-        )
-        assert (
-            0.0 <= float(extraction_layer) <= 1.0
-        ), f"agent.overview.extraction_layer must be in [0, 1], got {extraction_layer}"
-
+    # "current" uses the exact extraction directory selected by the method,
+    # including recurrence and paired-lens suffixes. No cross-variant guessing.
+    if extraction_method == "current":
+        assert base_results_dir.is_dir(), f"Missing current results: {base_results_dir}"
+        return base_results_dir
+    assert extraction_method in {
+        "logits", "recurrence_logits", "logit_lens", "patchscope_lens", "jlens"
+    }, f"Unsupported overview extraction method: {extraction_method}"
     desired_suffix = f"_logit_extraction_{extraction_method}"
+    if extraction_method == "recurrence_logits" or (
+        extraction_method == "jlens" and recurrence_idx is not None
+    ):
+        assert recurrence_idx is not None and 0 <= int(recurrence_idx) < 4
+        desired_suffix += f"_recurrence_{int(recurrence_idx)}"
+    if extraction_method == "jlens":
+        assert lens_source in {"base", "own"}
+        if lens_source == "own":
+            desired_suffix += "_paired"
     if extraction_method in {"logit_lens", "patchscope_lens", "jlens"}:
-        layer_str = str(float(extraction_layer)).replace(".", "p")
-        desired_suffix += f"_layer_{layer_str}"
-
+        assert extraction_layer is not None and 0 <= float(extraction_layer) <= 1
+        desired_suffix += f"_layer_{str(float(extraction_layer)).replace('.', 'p')}"
     name = base_results_dir.name
-    m = re.search(
-        r"_logit_extraction_[a-z0-9_]+(?:_layer_[0-9]+(?:p[0-9]+)?)?$",
-        name,
-    )
-    assert (
-        m is not None
-    ), f"Could not parse logit extraction suffix from base_results_dir name: {name!r}"
+    m = re.search(r"_logit_extraction_.*$", name)
+    assert m is not None, f"Could not parse logit extraction suffix: {name!r}"
     variant_name = name[: m.start()] + desired_suffix
     variant_dir = base_results_dir.with_name(variant_name)
     assert (
@@ -132,6 +132,8 @@ def get_overview(
         base_results_dir=method.base_results_dir,
         extraction_method=str(extraction_method),
         extraction_layer=None if extraction_layer is None else float(extraction_layer),
+        recurrence_idx=cfg.get("recurrence_idx", None),
+        lens_source=str(cfg.get("lens_source", "base")),
     )
 
     assert hasattr(
