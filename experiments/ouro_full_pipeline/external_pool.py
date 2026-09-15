@@ -12,7 +12,7 @@ p.add_argument('--resume',action='store_true')
 p.add_argument('--exclude-condition',action='append',default=[])
 p.add_argument('--pool-name',default='external_pool_v1',help='New scheduler directory; preserves every prior pool')
 a=p.parse_args()
-assert 0<a.hours<=3 and 1<=a.max_workers<=3
+assert 0<a.hours<=3 and 1<=a.max_workers<=4
 sys.path.insert(0,str(a.repo/'experiments/ouro_full_pipeline'))
 from pool import start_condition,read_json,cache_key
 assert a.pool_name.startswith('external_pool_') and '/' not in a.pool_name
@@ -25,7 +25,9 @@ state={'pending':list(a.conditions),'active':{},'completed':[],'failed':[],
 if a.resume:
  state=read_json(out/'STATE.json')
  assert state is not None
- state.setdefault('resumes',[]).append({'unix':time.time(),'source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest()})
+ state.setdefault('resumes',[]).append({'unix':time.time(),'source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+     'previous_max_workers':state['max_workers'],'max_workers':a.max_workers})
+ state['max_workers']=a.max_workers
 if a.exclude_condition:
  assert all(c in state['pending'] and c not in state['active'] for c in a.exclude_condition), 'Only untouched pending conditions may be handed off'
  state['pending']=[c for c in state['pending'] if c not in a.exclude_condition]

@@ -73,10 +73,12 @@ def test_external_pool_resume_preserves_deadline_and_hands_off_pending_only(tmp_
     (out/'STATE.json').write_text(json.dumps(state))
     result=subprocess.run([sys.executable,str(repo/'experiments/ouro_full_pipeline/external_pool.py'),
         '--repo',str(repo),'--root',str(tmp_path),'--conditions','ignored','--resume',
-        '--pool-name','external_pool_test','--exclude-condition','jlens_1'],capture_output=True,text=True)
+        '--pool-name','external_pool_test','--max-workers','4','--exclude-condition','jlens_1'],capture_output=True,text=True)
     assert result.returncode==0,result.stderr
     saved=json.loads((out/'TIME_LIMIT.json').read_text())
     assert saved['deadline_unix']==1 and saved['pending']==['jlens_0']
+    assert saved['max_workers']==4
+    assert saved['resumes'][-1]['previous_max_workers']==3
     assert saved['external_handoffs'][0]['conditions']==['jlens_1']
 
 
