@@ -1,3 +1,4 @@
+import json
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Literal
 from omegaconf import DictConfig, OmegaConf
@@ -22,6 +23,34 @@ from diffing.utils.configs import get_model_configurations
 from diffing.utils.agents.blackbox_agent import BlackboxAgent
 from diffing.utils.agents.diffing_method_agent import DiffingMethodAgent
 
+
+
+def decode_generated_continuations(outputs, input_width, tokenizer, max_new_tokens, model_type):
+    """Decode only generated tokens after the full padded prompt width.
+
+    Generation preserves the rectangular input prefix, including padding. True
+    per-row attention lengths must not be used as offsets into generated output.
+    Diagnostics are logged, never inserted into the auditor's returned payload.
+    """
+    continuations = []
+    eos = tokenizer.eos_token_id
+    eos_ids = set(eos if isinstance(eos, (list, tuple)) else [eos])
+    for index, row in enumerate(outputs):
+        ids = row[int(input_width):].tolist()
+        eos_position = next((i for i, token in enumerate(ids) if token in eos_ids), None)
+        emitted = len(ids) if eos_position is None else eos_position + 1
+        stop = "eos_token" if eos_position is not None else (
+            "max_new_tokens" if len(ids) >= max_new_tokens else "other"
+        )
+        logger.info("Generation diagnostics: {}", json.dumps({
+            "model_type": model_type, "batch_index": index,
+            "generated_tokens_including_eos": emitted,
+            "padded_generated_width": len(ids), "max_new_tokens": max_new_tokens,
+            "observed_stop": stop,
+        }))
+        continuations.append(tokenizer.decode(ids, skip_special_tokens=True,
+            clean_up_tokenization_spaces=False))
+    return continuations
 
 class DiffingMethod(ABC):
     """
@@ -453,21 +482,9 @@ class DiffingMethod(ABC):
         ):
             outputs = model.generator.output.save()
         if return_only_generation:
-            # Slice off the input portion per-example using true input lengths
-            input_lengths: List[int] = attention_mask.sum(dim=1).tolist()
-            continuations: List[str] = []
-            for i, inp_len in enumerate(input_lengths):
-                # Guard against pathological cases
-                assert isinstance(inp_len, int) and inp_len >= 0
-                gen_ids = outputs[i, int(inp_len) :].tolist()
-                continuations.append(
-                    self.tokenizer.decode(
-                        gen_ids,
-                        skip_special_tokens=True,
-                        clean_up_tokenization_spaces=False,
-                    )
-                )
-            return continuations
+            return decode_generated_continuations(
+                outputs, input_ids.shape[1], self.tokenizer, max_new_tokens, model_type
+            )
         else:
             decoded: List[str] = self.tokenizer.batch_decode(
                 outputs, skip_special_tokens=False
