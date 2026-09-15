@@ -102,11 +102,14 @@ def main():
     p.add_argument('--repo', type=Path, default=Path('/workspace/diffing-toolkit-full-20260915-v4'))
     p.add_argument('--hours', type=float, default=3)
     p.add_argument('--adl-repo', type=Path, help='Fixed ADL interface checkout; ADL waits until it exists')
+    p.add_argument('--resume', action='store_true')
+    p.add_argument('--external-assignment', type=Path, help='Verified resource handoff plus external conditions')
     p.add_argument('--max-workers', type=int, default=6)
     p.add_argument('--max-used-mib', type=int, default=50*1024)
     a = p.parse_args()
     assert 0<a.hours<=3.5 and 1<=a.max_workers<=6
-    root=a.root; pool=root/'workers/condition_pool_v1'; pool.mkdir()
+    root=a.root; pool=root/'workers/condition_pool_v1'
+    if not a.resume: pool.mkdir()
     deadline=time.time()+a.hours*3600
     state={'started_unix':time.time(),'deadline_unix':deadline,'max_workers':a.max_workers,
         'pool_source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -123,6 +126,21 @@ def main():
         j_released=True
     else:
         j_released=False
+    if a.resume:
+        state=read_json(pool/'STATE.json')
+        assert state is not None
+        deadline=state['deadline_unix']
+        state['max_workers']=a.max_workers
+        state.setdefault('resumes',[]).append({'unix':time.time(),'source_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),'max_workers':a.max_workers})
+    if a.external_assignment:
+        assignment=read_json(a.external_assignment)
+        assert assignment is not None
+        for condition in assignment['conditions']:
+            if condition in state['active']:
+                assert (pool/condition/'bounded/WORK_COMPLETE.json').exists(), 'External worker still active'
+                del state['active'][condition]
+            state['pending']=[c for c in state['pending'] if c!=condition]
+        state['external_assignment']=assignment
     while time.time()<deadline:
         legacy_active=[]
         for name,(current,remaining) in legacy.items():
