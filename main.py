@@ -33,6 +33,12 @@ def hydra_loguru_init() -> None:
 
 def setup_environment(cfg: DictConfig) -> None:
     """Set up the experiment environment."""
+    # NNsight adds object.save during tracing. AnyIO lazily defines typed socket
+    # attributes, whose validation rejects that inherited method. Initialize its
+    # public async backend before the first trace, including cached-grade runs.
+    import anyio
+    anyio.run(anyio.sleep, 0)
+
     # Create output directories
     output_dir = Path(cfg.pipeline.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

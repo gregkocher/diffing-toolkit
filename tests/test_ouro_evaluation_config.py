@@ -135,3 +135,20 @@ def test_overview_uses_ungraded_tokens_and_anonymizes_dataset(tmp_path):
     rendered = json.dumps(overview)
     assert "hidden_cake" not in rendered and "450" not in rendered and "frozen" not in rendered and "RELEVANT" not in rendered
     assert overview["datasets"]["ds1"]["token_groups"] == [[{"token_str": " general", "ordering_value": .42}]]
+
+
+def test_async_backend_initializes_before_pipeline_environment_work(tmp_path):
+    """Use the actual setup_environment prelude without GPU imports."""
+    import sys
+    from unittest.mock import patch
+    from types import SimpleNamespace
+    source = ROOT / "main.py"
+    node = next(n for n in ast.parse(source.read_text()).body if isinstance(n, ast.FunctionDef) and n.name == "setup_environment")
+    # The backend initialization must precede any model-related environment work.
+    calls = []
+    body = node.body[:3]  # docstring, import anyio, public anyio.run
+    scope = {}
+    fake_anyio = SimpleNamespace(run=lambda fn, value: calls.append((fn, value)), sleep=object())
+    with patch.dict(sys.modules, {"anyio": fake_anyio}):
+        exec(compile(ast.Module(body=body, type_ignores=[]), str(source), "exec"), scope)
+    assert calls == [(fake_anyio.sleep, 0)]
